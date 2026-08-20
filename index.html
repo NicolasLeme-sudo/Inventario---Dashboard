@@ -794,6 +794,8 @@ async function sb(path){
 
 async function carregarDiarioDoCiclo(cicloId){
   const diario = await sb('ciclos_diario?ciclo_id=eq.' + encodeURIComponent(cicloId) + '&order=data.asc');
+  console.log("CICLO SELECIONADO:", cicloId);
+  console.log("DADOS RETORNADOS:", diario);
   semanasChart[cicloId] = {
     dias: diario.map(d => { const [a,m,dd] = d.data.split('-'); return dd + '/' + m; }),
     meta: diario.map(d => d.meta_dia),
