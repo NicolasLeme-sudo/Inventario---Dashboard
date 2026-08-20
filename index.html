@@ -175,8 +175,8 @@ section{margin-bottom:32px;}
 .sq.meta{background:var(--meta-bar);}
 .sq.real{background:var(--accent-gold);}
 .ln.curva{width:14px; height:2px; background:var(--curva-line); display:inline-block;}
-.chart-svg-wrap{width:100%;}
-.chart-svg-wrap svg{width:100%; height:auto; display:block;}
+.chart-svg-wrap{width:100%; overflow-x:auto;}
+.chart-svg-wrap svg{height:auto; display:block;}
 
 /* Tabela */
 .table-toolbar{display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid var(--card-border); flex-shrink:0;}
@@ -376,15 +376,9 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
             </table>
           </div>
         </div>
-        <div class="donut-card donut-card-fixed">
+        <div class="donut-card donut-card-fixed" id="donut-acuracidade">
           <div class="donut-title">Acuracidade de Estoque</div>
-          <svg width="150" height="150" viewBox="0 0 42 42">
-            <circle cx="21" cy="21" r="15.9" fill="transparent" stroke="var(--bg-deep)" stroke-width="6"></circle>
-            <circle cx="21" cy="21" r="15.9" fill="transparent" stroke="var(--accent-gold)" stroke-width="6"
-              stroke-dasharray="94.60 100" stroke-dashoffset="25" transform="rotate(-90 21 21)"></circle>
-          </svg>
-          <div class="donut-pct">94,60%</div>
-          <div class="kpi-sub" style="text-align:center;">Meta: 97%</div>
+          <div class="hint" style="padding:20px; text-align:center;">Carregando...</div>
         </div>
       </div>
     </section>
@@ -478,13 +472,13 @@ function montarDadosGeral(resumo){
       emEstoque: resumo.itens_em_estoque, contados: resumo.itens_contados, pendentes: resumo.itens_pendentes,
       pctContados: resumo.itens_em_estoque ? resumo.itens_contados/resumo.itens_em_estoque*100 : 0,
       pctPendentes: resumo.itens_em_estoque ? resumo.itens_pendentes/resumo.itens_em_estoque*100 : 0,
-      acuracidade: formatPct(resumo.acuracidade_estoque*100)
+      acuracidade: formatPct(resumo.acuracidade_estoque*100), acuracidadePct: resumo.acuracidade_estoque*100
     },
     enderecos: {
       emEstoque: resumo.enderecos_em_estoque, contados: resumo.enderecos_contados, pendentes: resumo.enderecos_pendentes,
       pctContados: resumo.enderecos_em_estoque ? resumo.enderecos_contados/resumo.enderecos_em_estoque*100 : 0,
       pctPendentes: resumo.enderecos_em_estoque ? resumo.enderecos_pendentes/resumo.enderecos_em_estoque*100 : 0,
-      acuracidade: formatPct(resumo.acuracidade_estoque*100)
+      acuracidade: formatPct(resumo.acuracidade_estoque*100), acuracidadePct: resumo.acuracidade_estoque*100
     }
   };
   const pctItensGeral = resumo.itens_em_estoque ? resumo.itens_contados/resumo.itens_em_estoque*100 : 0;
@@ -503,8 +497,9 @@ function kpiRowHTML(rotulo, d, comAcuracidade){
       <div class="kpi-text">
         <div class="kpi-label">Acuracidade de Estoque</div>
         <div class="kpi-value">${d.acuracidade}</div>
-        <div class="kpi-delta negative">▼ -1,10 p.p. vs. meta 97%</div>
+        <div class="kpi-sub">Meta: 97%</div>
       </div>
+      <div class="mini-donut">${twoToneDonutSVG(d.acuracidadePct, 'var(--positive)', 'var(--bg-deep)', 64)}<span>${d.acuracidade}</span></div>
     </div>` : '';
   return `
     <div class="kpi-card">
@@ -534,6 +529,17 @@ function kpiRowHTML(rotulo, d, comAcuracidade){
   `;
 }
 
+function renderAcuracidadeGP(){
+  if(!dadosGeral) return;
+  const pct = dadosGeral.itens.acuracidadePct;
+  document.getElementById('donut-acuracidade').innerHTML = `
+    <div class="donut-title">Acuracidade de Estoque</div>
+    ${twoToneDonutSVG(pct, 'var(--positive)', 'var(--bg-deep)', 150)}
+    <div class="donut-pct">${dadosGeral.itens.acuracidade}</div>
+    <div class="kpi-sub" style="text-align:center;">Meta: 97%</div>
+  `;
+}
+
 let visaoAtual = 'itens';
 function setVisao(v){
   visaoAtual = v;
@@ -545,6 +551,7 @@ function renderKpis(){
   if(!dadosGeral) return;
   document.getElementById('kpi-row-itens').innerHTML = kpiRowHTML('Itens', dadosGeral.itens, true);
   document.getElementById('kpi-row-enderecos').innerHTML = kpiRowHTML('Endereços', dadosGeral.enderecos, false);
+  renderAcuracidadeGP();
 
   const dv = donutValidado[visaoAtual];
   document.getElementById('donut-section-title').innerHTML = dv.titulo + ' <span class="hint">alterne "Validado por" no filtro acima para ver por Endereço</span>';
@@ -613,9 +620,14 @@ function renderChart(){
   }
   const n = s.dias.length;
 
-  // geometria: viewBox 900x320, baseline 280, topo útil 40 (headroom p/ rótulos)
-  const groupW = 900 / n;
-  const barW = 46;
+  // geometria: largura mínima de 100px por dia (2 barras de 40px + respiro) para nunca
+  // sobrepor barras/rótulos — com muitos dias o gráfico cresce e rola na horizontal
+  // em vez de espremer tudo num viewBox fixo de 900px.
+  const wrap = document.getElementById('chart-svg-wrap');
+  const MIN_GROUP_W = 100;
+  const groupW = Math.max((wrap.clientWidth || 900) / n, MIN_GROUP_W);
+  const totalWidth = groupW * n;
+  const barW = 40;
   const baseline = 280;
   const metaTop = 140, metaH = 140; // escala fixa de referência (100% da meta)
   const maxReal = Math.max(...s.meta, ...s.real, 1) * 1.05;
@@ -657,8 +669,8 @@ function renderChart(){
   }).join('');
 
   const svg = `
-  <svg viewBox="0 0 900 320" xmlns="http://www.w3.org/2000/svg">
-    <line x1="0" y1="${baseline}" x2="900" y2="${baseline}" stroke="var(--card-border)" stroke-width="1"></line>
+  <svg width="${totalWidth}" height="320" viewBox="0 0 ${totalWidth} 320" xmlns="http://www.w3.org/2000/svg">
+    <line x1="0" y1="${baseline}" x2="${totalWidth}" y2="${baseline}" stroke="var(--card-border)" stroke-width="1"></line>
     ${metaBars}
     ${realBars}
     <path d="${linePath}" fill="none" stroke="var(--curva-line)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path>
@@ -861,7 +873,12 @@ async function inicializarDashboard(){
 /* ================= INIT ================= */
 applyLogo();
 inicializarDashboard();
-window.addEventListener('resize', () => {}); // SVG já é responsivo via viewBox, sem necessidade de redraw
+// recalcula a largura por dia do gráfico quando a janela muda de tamanho
+let resizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(renderChart, 150);
+});
 </script>
 </body>
 </html>
