@@ -733,7 +733,7 @@ function exportarCSV(){
 }
 
 /* ================= DADOS MOCK — DETALHADO POR REGIÃO ================= */
-const dadosBloco = [
+let dadosBloco = [
   { piso:"Piso 3", bloco:"A", setor:"Calçados", estoque:212340, inventario:201988 },
   { piso:"Piso 4", bloco:"B", setor:"Calçados", estoque:198760, inventario:190442 },
   { piso:"Piso 3", bloco:"C", setor:"Calçados", estoque:225958, inventario:211448 },
@@ -741,7 +741,6 @@ const dadosBloco = [
   { piso:"Piso 1", bloco:"F", setor:"Vestuário", estoque:107671, inventario:0 },
   { piso:"Piso 1", bloco:"G", setor:"Vestuário", estoque:0,      inventario:0 },
 ];
-let dadosBloco = []; // preenchido via Supabase
 
 function filtrarRegiao(){
   const bloco = document.getElementById('filtro-bloco').value;
