@@ -1074,13 +1074,19 @@ function renderChart(){
 
   const linePath = smoothPath(pontos);
 
+  const DIA_SEMANA = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
   const eixoX = s.dias.map((d,i)=>{
     const gx = i*groupW + (groupW)/2;
-    return `<text x="${gx}" y="${baseline+22}" text-anchor="middle" fill="var(--text-secondary)" font-size="11" font-family="Segoe UI, sans-serif">${d}</text>`;
+    const dow = new Date(s.diasISO[i] + 'T00:00:00').getDay();
+    const fimDeSemana = (dow === 0 || dow === 6);
+    // fim de semana e dias sem contagem ficam mais apagados para não competir com os dias úteis
+    const corDia = (fimDeSemana || s.semRegistro[i]) ? 'var(--text-secondary)' : 'var(--text-primary)';
+    return `<text x="${gx}" y="${baseline+22}" text-anchor="middle" fill="${corDia}" font-size="11" font-family="Segoe UI, sans-serif">${d}</text>` +
+           `<text x="${gx}" y="${baseline+37}" text-anchor="middle" fill="var(--text-secondary)" font-size="10" font-family="Segoe UI, sans-serif" opacity="${fimDeSemana ? '.55' : '.85'}">${DIA_SEMANA[dow]}</text>`;
   }).join('');
 
   const svg = `
-  <svg width="${totalWidth}" height="320" viewBox="0 0 ${totalWidth} 320" xmlns="http://www.w3.org/2000/svg">
+  <svg width="${totalWidth}" height="340" viewBox="0 0 ${totalWidth} 340" xmlns="http://www.w3.org/2000/svg">
     <line x1="0" y1="${baseline}" x2="${totalWidth}" y2="${baseline}" stroke="var(--card-border)" stroke-width="1"></line>
     ${metaBars}
     ${realBars}
@@ -1747,6 +1753,23 @@ async function readXLSX(file){
 }
 
 /* ================= DE-PARA SEGMENTO ================= */
+// De/para oficial de endereço -> setor: o bloco do endereço define o setor.
+const BLOCO_SETOR = { A:'Calçados', B:'Calçados', C:'Calçados', E:'Vestuário', F:'Vestuário', G:'Vestuário' };
+
+// Normaliza o que vier escrito na planilha (acento, plural, caixa) para 'Calçados' ou 'Vestuário'.
+function normalizarSetor(valor){
+  if(!valor) return null;
+  const t = valor.toString().trim().toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if(t.startsWith('calcad') || t.startsWith('chinel')) return 'Calçados';
+  if(t.startsWith('vestuar') || t.startsWith('acessor') || t.startsWith('meia')) return 'Vestuário';
+  return null;
+}
+// Setor de um endereço: usa o que a planilha trouxer; se não vier, deduz pelo bloco.
+function setorDoEndereco(info){
+  return normalizarSetor(info && info.setor) || BLOCO_SETOR[info && info.bloco] || null;
+}
+
 const DE_PARA_SEGMENTO = {
   "Calçados": "Calçados", "Chinelos": "Calçados",
   "Vestuários": "Vestuários", "Acessórios": "Vestuários", "Meias": "Vestuários"
@@ -1950,17 +1973,24 @@ async function processar(){
     let enderecosContadosTotal = 0, enderecosPendentesTotal = 0;
     let enderecosEstoqueCalcados = 0, enderecosContadosCalcados = 0;
     let enderecosEstoqueVestuario = 0, enderecosContadosVestuario = 0;
+    const blocosSemSetor = new Set();
     for(const [local, info] of enderecosUnicos.entries()){
       const contado = locaisContados.has(local);
       if(contado) enderecosContadosTotal++; else enderecosPendentesTotal++;
-      const setorEndereco = DE_PARA_SEGMENTO[info.setor] || info.setor;
+      const setorEndereco = setorDoEndereco(info);
       if(setorEndereco === 'Calçados'){
         enderecosEstoqueCalcados++;
         if(contado) enderecosContadosCalcados++;
-      } else if(setorEndereco === 'Vestuários' || setorEndereco === 'Vestuário'){
+      } else if(setorEndereco === 'Vestuário'){
         enderecosEstoqueVestuario++;
         if(contado) enderecosContadosVestuario++;
+      } else {
+        blocosSemSetor.add(info.bloco || '(sem bloco)');
       }
+    }
+    if(blocosSemSetor.size){
+      log('⚠ Endereços sem setor definido nos blocos: ' + [...blocosSemSetor].join(', ') +
+          ' — esses ficam de fora dos donuts por segmento. Avise para eu incluir no de/para.', 'warn');
     }
     log('Endereços em Estoque: ' + enderecosEmEstoqueTotal.toLocaleString('pt-BR'), 'ok');
     log('Endereços Contados: ' + enderecosContadosTotal.toLocaleString('pt-BR') + ' | Pendentes: ' + enderecosPendentesTotal.toLocaleString('pt-BR'), 'ok');
@@ -2005,7 +2035,6 @@ async function processar(){
     }
 
     // ---------- 8) POR BLOCO / SETOR ----------
-    const BLOCO_SETOR = { A:'Calçados', B:'Calçados', C:'Calçados', E:'Vestuário', F:'Vestuário', G:'Vestuário' };
     const blocos = new Set([...Object.keys(estoquePorBloco)]);
     for(const local of locaisContados){
       const info = enderecosUnicos.get(local);
@@ -2021,7 +2050,7 @@ async function processar(){
     for(const bloco of blocos){
       const estoque = estoquePorBloco[bloco] || 0;
       const inventario = inventarioPorBloco[bloco] || 0;
-      const setor = BLOCO_SETOR[bloco] || 'Indefinido';
+      const setor = BLOCO_SETOR[bloco] || 'Indefinido';  // mesmo de/para usado nos endereços
       regiaoBlocoDetalhe.push({
         bloco, setor, qtde_estoque: estoque, qtde_inventario: inventario,
         status: inventario > 0 || estoque === 0 ? 'Validado' : 'Pendente'
