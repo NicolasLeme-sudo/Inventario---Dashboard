@@ -307,7 +307,6 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
       </div>
     </div>
     <div class="header-right">
-      <span class="badge-fonte">Dados ao vivo — Supabase</span>
       <div class="theme-toggle" onclick="toggleTheme()">
         <span id="toggleIcon">🌙</span>
         <span id="toggleLabel">Tema Escuro</span>
@@ -325,7 +324,7 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
 <div class="filterbar" id="filterbar-visao-geral">
   <div class="filter-field">
     <label>Segmento</label>
-    <select onchange="renderKpis()"><option>Todos</option><option>Calçados</option><option>Vestuários</option></select>
+    <select id="filtro-segmento" onchange="renderKpis()"><option>Todos</option><option>Calçados</option><option>Vestuários</option></select>
   </div>
   <div class="filter-actions">
     <div class="filter-field" style="margin-bottom:0;">
@@ -424,17 +423,13 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
 
     <section>
       <div class="section-title">Ganhos e Perdas de Saldo Computado + Balanço</div>
-      <div class="kpi-row" style="grid-template-columns:repeat(5,1fr);">
-        <div class="kpi-card"><div class="kpi-text"><div class="kpi-label">Total Ganhos</div><div class="kpi-value">1.842</div><div class="kpi-sub">itens a mais que o esperado</div></div></div>
-        <div class="kpi-card"><div class="kpi-text"><div class="kpi-label">Valor Ganhos</div><div class="kpi-value" style="color:var(--positive);">R$ 96.430</div></div></div>
-        <div class="kpi-card"><div class="kpi-text"><div class="kpi-label">Total Perdas</div><div class="kpi-value">2.615</div><div class="kpi-sub">itens a menos que o esperado</div></div></div>
-        <div class="kpi-card"><div class="kpi-text"><div class="kpi-label">Valor Perdas</div><div class="kpi-value" style="color:var(--negative);">R$ 148.920</div></div></div>
-        <div class="kpi-card"><div class="kpi-text"><div class="kpi-label">Balanço em Valor</div><div class="kpi-value" style="color:var(--negative);">-R$ 52.490</div><div class="kpi-sub">Balanço em Itens: -773 un.</div></div></div>
+      <div class="kpi-row" style="grid-template-columns:repeat(5,1fr);" id="kpi-row-ganhos-perdas">
+        <div class="kpi-card"><div class="kpi-text"><div class="kpi-label">Total Ganhos</div><div class="kpi-value">—</div></div></div>
       </div>
     </section>
 
     <section>
-      <div class="section-title">Acuracidade do Estoque <span class="hint">listagem completa do material bipado — ordenável e exportável</span></div>
+      <div class="section-title">Detalhe de Ganhos e Perdas <span class="hint">listagem completa do material bipado com diferença — ordenável e exportável</span></div>
       <div class="grid-2">
         <div class="table-card table-card-fixed">
           <div class="table-toolbar">
@@ -720,6 +715,22 @@ function montarDadosGeral(resumo){
       pctPendentes: resumo.itens_em_estoque ? resumo.itens_pendentes/resumo.itens_em_estoque*100 : 0,
       acuracidade: formatPct(resumo.acuracidade_estoque*100), acuracidadePct: resumo.acuracidade_estoque*100
     },
+    itensPorSegmento: {
+      'Calçados': {
+        emEstoque: resumo.itens_estoque_calcados, contados: resumo.itens_contados_calcados,
+        pendentes: resumo.itens_estoque_calcados - resumo.itens_contados_calcados,
+        pctContados: resumo.itens_estoque_calcados ? resumo.itens_contados_calcados/resumo.itens_estoque_calcados*100 : 0,
+        pctPendentes: resumo.itens_estoque_calcados ? (resumo.itens_estoque_calcados-resumo.itens_contados_calcados)/resumo.itens_estoque_calcados*100 : 0,
+        acuracidade: formatPct(resumo.acuracidade_estoque*100), acuracidadePct: resumo.acuracidade_estoque*100
+      },
+      'Vestuários': {
+        emEstoque: resumo.itens_estoque_vestuario, contados: resumo.itens_contados_vestuario,
+        pendentes: resumo.itens_estoque_vestuario - resumo.itens_contados_vestuario,
+        pctContados: resumo.itens_estoque_vestuario ? resumo.itens_contados_vestuario/resumo.itens_estoque_vestuario*100 : 0,
+        pctPendentes: resumo.itens_estoque_vestuario ? (resumo.itens_estoque_vestuario-resumo.itens_contados_vestuario)/resumo.itens_estoque_vestuario*100 : 0,
+        acuracidade: formatPct(resumo.acuracidade_estoque*100), acuracidadePct: resumo.acuracidade_estoque*100
+      }
+    },
     enderecos: {
       emEstoque: resumo.enderecos_em_estoque, contados: resumo.enderecos_contados, pendentes: resumo.enderecos_pendentes,
       pctContados: resumo.enderecos_em_estoque ? resumo.enderecos_contados/resumo.enderecos_em_estoque*100 : 0,
@@ -775,6 +786,19 @@ function kpiRowHTML(rotulo, d, comAcuracidade){
   `;
 }
 
+function renderKpisGanhosPerdas(){
+  if(!cicloAtualResumo) return;
+  const r = cicloAtualResumo;
+  const fmtInt = v => Math.round(v || 0).toLocaleString('pt-BR');
+  const fmtR$ = v => 'R$ ' + Math.round(v || 0).toLocaleString('pt-BR');
+  document.getElementById('kpi-row-ganhos-perdas').innerHTML = `
+    <div class="kpi-card"><div class="kpi-text"><div class="kpi-label">Total Ganhos</div><div class="kpi-value">${fmtInt(r.total_ganhos)}</div><div class="kpi-sub">itens a mais que o esperado</div></div></div>
+    <div class="kpi-card"><div class="kpi-text"><div class="kpi-label">Valor Ganhos</div><div class="kpi-value" style="color:var(--positive);">${fmtR$(r.valor_ganhos)}</div></div></div>
+    <div class="kpi-card"><div class="kpi-text"><div class="kpi-label">Total Perdas</div><div class="kpi-value">${fmtInt(Math.abs(r.total_perdas))}</div><div class="kpi-sub">itens a menos que o esperado</div></div></div>
+    <div class="kpi-card"><div class="kpi-text"><div class="kpi-label">Valor Perdas</div><div class="kpi-value" style="color:var(--negative);">-${fmtR$(Math.abs(r.valor_perdas))}</div></div></div>
+    <div class="kpi-card"><div class="kpi-text"><div class="kpi-label">Balanço em Valor</div><div class="kpi-value" style="color:${(r.balanco_valor||0) >= 0 ? 'var(--positive)' : 'var(--negative)'};">${(r.balanco_valor||0) >= 0 ? '' : '-'}${fmtR$(Math.abs(r.balanco_valor))}</div><div class="kpi-sub">Balanço em Itens: ${(r.balanco_itens||0) >= 0 ? '+' : ''}${fmtInt(r.balanco_itens)} un.</div></div></div>
+  `;
+}
 function renderAcuracidadeGP(){
   if(!dadosGeral) return;
   const pct = dadosGeral.itens.acuracidadePct;
@@ -795,9 +819,13 @@ function setVisao(v){
 }
 function renderKpis(){
   if(!dadosGeral) return;
-  document.getElementById('kpi-row-itens').innerHTML = kpiRowHTML('Itens', dadosGeral.itens, true);
-  document.getElementById('kpi-row-enderecos').innerHTML = kpiRowHTML('Endereços', dadosGeral.enderecos, false);
+  const segmento = document.getElementById('filtro-segmento')?.value || 'Todos';
+  const itensDados = (segmento !== 'Todos' && dadosGeral.itensPorSegmento[segmento]) ? dadosGeral.itensPorSegmento[segmento] : dadosGeral.itens;
+  document.getElementById('kpi-row-itens').innerHTML = kpiRowHTML('Itens', itensDados, true);
+  document.getElementById('kpi-row-enderecos').innerHTML = kpiRowHTML('Endereços', dadosGeral.enderecos, false)
+    + (segmento !== 'Todos' ? '<div class="hint" style="grid-column:1/-1;">Endereços ainda não são segmentados por Calçados/Vestuário nesta versão — mostrando total geral.</div>' : '');
   renderAcuracidadeGP();
+  renderKpisGanhosPerdas();
 
   const dv = donutValidado[visaoAtual];
   document.getElementById('donut-section-title').innerHTML = dv.titulo + ' <span class="hint">alterne "Validado por" no filtro acima para ver por Endereço</span>';
@@ -1039,7 +1067,7 @@ function exportarCSV(){
   link.click();
 }
 
-/* ================= DADOS MOCK — DETALHADO POR REGIÃO ================= */
+/* ================= DETALHADO POR REGIÃO (valor inicial — substituído por regiao_bloco_detalhe real no load) ================= */
 let dadosBloco = [
   { piso:"Piso 3", bloco:"A", setor:"Calçados", estoque:212340, inventario:201988 },
   { piso:"Piso 4", bloco:"B", setor:"Calçados", estoque:198760, inventario:190442 },
@@ -1097,6 +1125,29 @@ async function sb(path){
   });
   if(!res.ok) throw new Error('Falha ao consultar ' + path + ' (' + res.status + ')');
   return res.json();
+}
+// Busca todas as páginas — o Supabase corta em 1000 linhas por requisição por padrão,
+// então para tabelas grandes (ex: ganhos_perdas_detalhe) precisamos paginar com Range.
+async function sbAll(path){
+  const PAGE = 1000;
+  let offset = 0;
+  let todos = [];
+  while(true){
+    const res = await fetch(SUPABASE_URL + '/rest/v1/' + path, {
+      headers: {
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': 'Bearer ' + SUPABASE_ANON_KEY,
+        'Range-Unit': 'items',
+        'Range': offset + '-' + (offset + PAGE - 1)
+      }
+    });
+    if(!res.ok) throw new Error('Falha ao consultar ' + path + ' (' + res.status + ')');
+    const pagina = await res.json();
+    todos = todos.concat(pagina);
+    if(pagina.length < PAGE) break;
+    offset += PAGE;
+  }
+  return todos;
 }
 
 async function carregarDiarioDoCiclo(cicloId){
@@ -1177,7 +1228,7 @@ function limparFiltroPeriodo(){
 
 async function carregarCiclo(cicloId){
   const [ganhosPerdas, regiaoBloco] = await Promise.all([
-    sb('ganhos_perdas_detalhe?ciclo_id=eq.' + encodeURIComponent(cicloId)),
+    sbAll('ganhos_perdas_detalhe?ciclo_id=eq.' + encodeURIComponent(cicloId)),
     sb('regiao_bloco_detalhe?ciclo_id=eq.' + encodeURIComponent(cicloId))
   ]);
   await carregarDiarioDoCiclo(cicloId);
@@ -1755,7 +1806,7 @@ async function processar(){
       diario: ciclosDiario,
       ganhosPerdas: ganhosPerdasDetalhe.map(g=>({
         ciclo_id: cicloId,
-        regiao: (enderecosUnicos.get(g.local)?.regiao || '') + (enderecosUnicos.get(g.local)?.bloco ? ' - Bloco ' + enderecosUnicos.get(g.local).bloco : ''),
+        regiao: enderecosUnicos.get(g.local)?.regiao || g.local || '',
         codigo_produto: g.codigo, nome_produto: g.produto, variacao: g.variacao,
         diferenca: g.diferenca, valor_diferenca: g.valorVariacao
       })),
