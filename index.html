@@ -696,6 +696,7 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
     <div class="actions">
       <button class="btn" id="btnProcessar">▶ Processar ciclo</button>
       <button class="btn secondary" id="btnEnviar" disabled>⬆ Enviar para Supabase</button>
+      <button class="btn secondary" id="btnEndPendentes" style="display:none;" onclick="exportarEnderecosPendentes()">⬇ Endereços pendentes</button>
     </div>
 
     <div class="actions" id="successBox" style="display:none;">
@@ -718,7 +719,7 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
 
 </main>
 
-<footer>Inventário E-commerce — Vulcabras — Extrema/MG</footer>
+<footer>Inventário E-commerce — dados ao vivo do Supabase · Vulcabras · Report E-commerce</footer>
 
 <script>
 const LOGO_DATA = {
@@ -1966,7 +1967,7 @@ async function processar(){
     for(const r of enderecosRows){
       const local = r['Local'];
       if(local && !enderecosUnicos.has(local)){
-        enderecosUnicos.set(local, { bloco: r['Bloco'], setor: r['Setor'], regiao: r['Região'] });
+        enderecosUnicos.set(local, { bloco: r['Bloco'], setor: r['Setor'], regiao: r['Região'], linha: r });
       }
     }
     const enderecosEmEstoqueTotal = enderecosUnicos.size;
@@ -1974,10 +1975,17 @@ async function processar(){
     let enderecosEstoqueCalcados = 0, enderecosContadosCalcados = 0;
     let enderecosEstoqueVestuario = 0, enderecosContadosVestuario = 0;
     const blocosSemSetor = new Set();
+    state.enderecosPendentes = [];
     for(const [local, info] of enderecosUnicos.entries()){
       const contado = locaisContados.has(local);
       if(contado) enderecosContadosTotal++; else enderecosPendentesTotal++;
       const setorEndereco = setorDoEndereco(info);
+      if(!contado){
+        state.enderecosPendentes.push({
+          local, bloco: info.bloco || '', setor: setorEndereco || 'Indefinido',
+          regiao: info.regiao || '', linha: info.linha
+        });
+      }
       if(setorEndereco === 'Calçados'){
         enderecosEstoqueCalcados++;
         if(contado) enderecosContadosCalcados++;
@@ -2108,6 +2116,9 @@ async function processar(){
       regiaoBloco: regiaoBlocoDetalhe.map(r=>({ ciclo_id: cicloId, piso:null, ...r }))
     };
 
+    const btnPend = document.getElementById('btnEndPendentes');
+    btnPend.style.display = 'inline-block';
+    btnPend.textContent = '⬇ Endereços pendentes (' + state.enderecosPendentes.length.toLocaleString('pt-BR') + ')';
     log('✔ Processamento concluído. Confira o resumo abaixo antes de enviar.', 'ok');
     mostrarResumo(state.resultado.resumo);
     document.getElementById('btnEnviar').disabled = false;
@@ -2145,6 +2156,43 @@ function mostrarResumo(r){
 }
 
 /* ================= LOGIN ================= */
+/* ================= ENDEREÇOS PENDENTES (auditoria) =================
+   Lista os endereços que existem na Base_Estoque mas não apareceram em nenhuma bipagem
+   nem no arquivo de diferença — para conferir fisicamente antes de considerar o setor
+   encerrado (ou antes de tirar esses endereços da base). */
+function exportarEnderecosPendentes(){
+  const pend = state.enderecosPendentes || [];
+  if(!pend.length){ alert('Nenhum endereço pendente — processe o ciclo primeiro.'); return; }
+
+  // Aproveita todas as colunas originais da planilha, para não perder informação na auditoria
+  const colunasOriginais = Object.keys(pend[0].linha || {});
+  const header = ['Local','Bloco','Setor (derivado)','Região']
+    .concat(colunasOriginais.filter(c => !['Local','Bloco','Setor','Região'].includes(c)));
+  const limpa = v => (v === null || v === undefined) ? '' : String(v).replace(/[;\r\n]/g, ' ');
+  const lines = [header.join(';')];
+  pend.forEach(e => {
+    const base = [e.local, e.bloco, e.setor, e.regiao];
+    const extras = header.slice(4).map(c => limpa(e.linha ? e.linha[c] : ''));
+    lines.push(base.map(limpa).concat(extras).join(';'));
+  });
+
+  const blob = new Blob(["\uFEFF" + lines.join('\n')], {type:'text/csv;charset=utf-8;'});
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = 'enderecos_pendentes_' + cicloAtualAuto().cicloId + '.csv';
+  link.click();
+
+  // Resumo por bloco direto no log, para leitura rápida sem abrir o arquivo
+  const porBloco = {};
+  pend.forEach(e => {
+    const k = (e.setor || '?') + ' · Bloco ' + (e.bloco || '?');
+    porBloco[k] = (porBloco[k] || 0) + 1;
+  });
+  log('Endereços pendentes por bloco:', 'warn');
+  Object.entries(porBloco).sort((a,b)=>b[1]-a[1])
+    .forEach(([k,v]) => log('   ' + k + ': ' + v.toLocaleString('pt-BR') + ' endereços'));
+}
+
 /* ================= SUCESSO / REDIRECIONAMENTO ================= */
 let redirectTimeoutId = null;
 function irParaVisaoGeral(){
