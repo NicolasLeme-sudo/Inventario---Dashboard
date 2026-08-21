@@ -627,12 +627,12 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
         </label>
       </div>
       <div class="grid" style="margin-top:10px;">
-        <div class="hint" id="ultimo-bipagens">Último enviado: —</div>
-        <div class="hint" id="ultimo-diferenca">Último enviado: —</div>
-        <div class="hint" id="ultimo-foto">Último enviado: —</div>
-        <div class="hint" id="ultimo-embalagem">Último enviado: —</div>
-        <div class="hint" id="ultimo-enderecos">Último enviado: —</div>
-        <div class="hint" id="ultimo-custo">Último enviado: —</div>
+        <div class="hint" id="ultimo-bipagens" style="max-height:54px;overflow:hidden;text-overflow:ellipsis;">Último enviado: —</div>
+        <div class="hint" id="ultimo-diferenca" style="max-height:54px;overflow:hidden;text-overflow:ellipsis;">Último enviado: —</div>
+        <div class="hint" id="ultimo-foto" style="max-height:54px;overflow:hidden;text-overflow:ellipsis;">Último enviado: —</div>
+        <div class="hint" id="ultimo-embalagem" style="max-height:54px;overflow:hidden;text-overflow:ellipsis;">Último enviado: —</div>
+        <div class="hint" id="ultimo-enderecos" style="max-height:54px;overflow:hidden;text-overflow:ellipsis;">Último enviado: —</div>
+        <div class="hint" id="ultimo-custo" style="max-height:54px;overflow:hidden;text-overflow:ellipsis;">Último enviado: —</div>
       </div>
       <div class="hint" style="margin-top:10px;">A "Base_Custo" substitui o "Valor Unitario" que vem no arquivo de Diferença_Por_Local (não confiável) — o valor de ganhos/perdas em R$ passa a ser calculado por SKU a partir dessa base (usa a coluna "Custo"; se vier 0/vazio, usa o "Préço médio" como reserva).</div>
     </div>
@@ -1306,6 +1306,12 @@ function calcularMetaDia(){
 
 /* ================= LOG DE ABASTECIMENTO (último arquivo por campo) ================= */
 const CAMPOS_ABASTECIMENTO = ['bipagens','diferenca','foto','embalagem','enderecos','custo'];
+function resumirArquivos(arquivosStr){
+  if(!arquivosStr) return '—';
+  const nomes = arquivosStr.split(', ');
+  if(nomes.length <= 3) return arquivosStr;
+  return nomes.slice(0,3).join(', ') + ' e mais ' + (nomes.length - 3) + ' arquivo(s)';
+}
 async function carregarLogAbastecimento(){
   try{
     const linhas = await sb('abastecimento_log');
@@ -1315,7 +1321,7 @@ async function carregarLogAbastecimento(){
       const el = document.getElementById('ultimo-' + campo);
       const reg = porCampo[campo];
       el.textContent = reg
-        ? 'Último: ' + reg.arquivos + ' — ' + new Date(reg.enviado_em).toLocaleString('pt-BR') + (reg.enviado_por ? ' por ' + reg.enviado_por : '')
+        ? 'Último: ' + resumirArquivos(reg.arquivos) + ' — ' + new Date(reg.enviado_em).toLocaleString('pt-BR') + (reg.enviado_por ? ' por ' + reg.enviado_por : '')
         : 'Último enviado: —';
     });
   }catch(err){ console.error('Falha ao carregar log de abastecimento:', err); }
@@ -1441,6 +1447,18 @@ const DE_PARA_SEGMENTO = {
   "Vestuários": "Vestuários", "Acessórios": "Vestuários", "Meias": "Vestuários"
 };
 
+// Fallback por nome do produto, usado só quando o SKU não bate em nenhuma linha da Base_Embalagem.
+// Ordem importa: primeira palavra-chave encontrada no nome decide o segmento.
+const PALAVRAS_CALCADOS = ['tenis','tênis','sapato','sapatilha','chinelo','sandalia','sandália','bota','botina','chuteira','mule','slipper','papete'];
+const PALAVRAS_VESTUARIO = ['meia','camisa','camiseta','bermuda','calça','calca','short','shorts','vestido','blusa','jaqueta','moletom','regata','legging','conjunto','cueca','sunga','boné','bone','mochila','bolsa','pochete','cinto'];
+function segmentoPorNome(nomeProduto){
+  if(!nomeProduto) return null;
+  const nome = nomeProduto.toString().toLowerCase();
+  if(PALAVRAS_CALCADOS.some(p => nome.includes(p))) return 'Calçados';
+  if(PALAVRAS_VESTUARIO.some(p => nome.includes(p))) return 'Vestuários';
+  return null;
+}
+
 /* ================= PROCESSAMENTO PRINCIPAL ================= */
 document.getElementById('btnProcessar').addEventListener('click', processar);
 document.getElementById('btnEnviar').addEventListener('click', enviarSupabase);
@@ -1511,6 +1529,7 @@ async function processar(){
     let totalGanhosItens = 0, totalPerdasItens = 0, valorGanhos = 0, valorPerdas = 0;
     const acuraciaRatios = [];
     const somaQtdePorSKU = {}; // sku -> soma Qtde. Inventário (p/ segmentar depois)
+    const nomePorSKU = {}; // sku -> nome do produto (p/ classificar por palavra-chave quando não bate na Base_Embalagem)
     const ganhosPerdasDetalhe = []; // linhas para a tabela exportável
     const somaPorLocal = {}; // local -> { estoque, inventario } (p/ tabela por bloco)
 
@@ -1550,7 +1569,10 @@ async function processar(){
 
         if(qtdeEst !== 0){ acuraciaRatios.push(qtdeInv / qtdeEst); }
 
-        if(codigo){ somaQtdePorSKU[codigo] = (somaQtdePorSKU[codigo] || 0) + qtdeInv; }
+        if(codigo){
+          somaQtdePorSKU[codigo] = (somaQtdePorSKU[codigo] || 0) + qtdeInv;
+          if(produto && !nomePorSKU[codigo]) nomePorSKU[codigo] = produto;
+        }
 
         if(diferenca !== 0){
           ganhosPerdasDetalhe.push({ local, codigo, produto, diferenca, valorVariacao, variacao });
@@ -1595,16 +1617,21 @@ async function processar(){
         skuParaSegmento2[sku] = DE_PARA_SEGMENTO[segmentoBruto] || null;
       }
     }
-    let itensContadosCalcados = 0, itensContadosVestuario = 0, itensNaoMapeados = 0;
+    let itensContadosCalcados = 0, itensContadosVestuario = 0, itensNaoMapeados = 0, itensPorNome = 0;
     for(const [sku, qtde] of Object.entries(somaQtdePorSKU)){
-      const seg = skuParaSegmento2[sku];
+      let seg = skuParaSegmento2[sku];
+      if(!seg){
+        const segNome = segmentoPorNome(nomePorSKU[sku]);
+        if(segNome){ seg = segNome; itensPorNome += qtde; }
+      }
       if(seg === 'Calçados') itensContadosCalcados += qtde;
       else if(seg === 'Vestuários') itensContadosVestuario += qtde;
       else itensNaoMapeados += qtde;
     }
     log('Itens Contados Calçados: ' + itensContadosCalcados.toLocaleString('pt-BR'), 'ok');
     log('Itens Contados Vestuário: ' + itensContadosVestuario.toLocaleString('pt-BR'), 'ok');
-    if(itensNaoMapeados > 0) log('⚠ ' + itensNaoMapeados.toLocaleString('pt-BR') + ' itens contados não bateram com nenhum SKU da Base_Embalagem (ficam de fora da % por segmento)', 'warn');
+    if(itensPorNome > 0) log('ℹ ' + itensPorNome.toLocaleString('pt-BR') + ' itens classificados pelo nome do produto (SKU não estava na Base_Embalagem)', 'warn');
+    if(itensNaoMapeados > 0) log('⚠ ' + itensNaoMapeados.toLocaleString('pt-BR') + ' itens contados não bateram com nenhum SKU da Base_Embalagem nem com palavras-chave do nome (ficam de fora da % por segmento)', 'warn');
 
     // ---------- 5) BASE DE ENDEREÇOS (dBase_Endereços + Validado) ----------
     log('Lendo Base_Estoque.xlsx (endereços)...');
