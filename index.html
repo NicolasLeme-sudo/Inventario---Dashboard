@@ -499,7 +499,7 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
   <div class="page" id="page-atualizar-inventario">
 
     <h1>Atualizar Inventário</h1>
-    <div class="subtitle">Abastece a base do ciclo atual e publica no Supabase. Faça login (seção 0) antes de enviar — a escrita é liberada só para usuário autenticado. Ao concluir, o dashboard (aba Visão Geral) é atualizado na hora, sem precisar recarregar a página.</div>
+    <div class="subtitle">Abastece a base do ciclo atual e publica no Supabase. Acesso liberado pelo link — ao concluir, o dashboard (aba Visão Geral) é atualizado na hora, sem precisar recarregar a página.</div>
 
     <div class="warn-box">
       <strong>⚠️ Duas fórmulas foram inferidas, não confirmadas no Power BI:</strong> as colunas <code>Variação</code> (Ganho/Perda) e <code>Valor_Variação</code> não existem nos arquivos brutos — presumi <code>Variação = Diferença &gt; 0 ? "Ganho" : Diferença &lt; 0 ? "Perda" : "Saldo OK"</code> e <code>Valor_Variação = Diferença × Valor Unitário</code>. Confira essas duas contra o Power Query assim que possível.
@@ -511,16 +511,6 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
         <div class="field"><label>Seu nome</label><input type="text" id="cfgSeuNome" placeholder="ex: Nicolas"></div>
       </div>
       <div class="hint" style="margin-top:10px;">Usado só pra registrar quem abasteceu cada arquivo/atualização — não é senha, fica salvo junto do log de abastecimento abaixo.</div>
-    </div>
-
-    <div class="card" id="cardLogin">
-      <h2>0. Login (substitui a chave secreta)</h2>
-      <div class="grid">
-        <div class="field"><label>E-mail</label><input type="email" id="loginEmail" placeholder="seu@email.com"></div>
-        <div class="field"><label>Senha</label><input type="password" id="loginSenha"></div>
-      </div>
-      <div class="actions"><button class="btn" id="btnLogin">🔑 Entrar</button></div>
-      <div class="hint" id="loginStatus" style="margin-top:8px;">Não conectado.</div>
     </div>
 
     <!-- ===================== CONFIGURAÇÃO DO CICLO ===================== -->
@@ -631,6 +621,10 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
           📄 Base_Estoque.xlsx (endereços)<br><span class="hint" id="pick-enderecos-info">selecionar arquivo</span>
           <input type="file" id="input-enderecos" accept=".xlsx">
         </label>
+        <label class="filepick" id="pick-custo">
+          📄 Base_Custo.xlsx (Item / Preço médio / Custo)<br><span class="hint" id="pick-custo-info">selecionar arquivo</span>
+          <input type="file" id="input-custo" accept=".xlsx">
+        </label>
       </div>
       <div class="grid" style="margin-top:10px;">
         <div class="hint" id="ultimo-bipagens">Último enviado: —</div>
@@ -638,7 +632,9 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
         <div class="hint" id="ultimo-foto">Último enviado: —</div>
         <div class="hint" id="ultimo-embalagem">Último enviado: —</div>
         <div class="hint" id="ultimo-enderecos">Último enviado: —</div>
+        <div class="hint" id="ultimo-custo">Último enviado: —</div>
       </div>
+      <div class="hint" style="margin-top:10px;">A "Base_Custo" substitui o "Valor Unitario" que vem no arquivo de Diferença_Por_Local (não confiável) — o valor de ganhos/perdas em R$ passa a ser calculado por SKU a partir dessa base (usa a coluna "Custo"; se vier 0/vazio, usa o "Préço médio" como reserva).</div>
     </div>
 
     <div class="actions">
@@ -708,7 +704,7 @@ function twoToneDonutSVG(pctPrimary, color1, color2, size){
   return `<svg width="${size}" height="${size}" viewBox="0 0 42 42">
     <circle cx="21" cy="21" r="15.9" fill="transparent" stroke="${color2}" stroke-width="6"></circle>
     <circle cx="21" cy="21" r="15.9" fill="transparent" stroke="${color1}" stroke-width="6"
-      stroke-dasharray="${pctPrimary.toFixed(2)} 100" stroke-dashoffset="25" transform="rotate(-90 21 21)"></circle>
+      stroke-dasharray="${pctPrimary.toFixed(2)} 100" transform="rotate(-90 21 21)"></circle>
   </svg>`;
 }
 
@@ -1259,12 +1255,9 @@ function preencherCamposDoCiclo(r){
   calcularMetaDia();
 }
 
-/* ================= LOGIN / ENVIO (Gerador) ================= */
-let sessionAccessToken = null; // preenchido após login
-
 /* ================= ESTADO ================= */
 const state = {
-  bipagensFiles: [], diferencaFiles: [], fotoFile: null, embalagemFile: null, enderecosFile: null,
+  bipagensFiles: [], diferencaFiles: [], fotoFile: null, embalagemFile: null, enderecosFile: null, custoFile: null,
   resultado: null
 };
 
@@ -1312,7 +1305,7 @@ function calcularMetaDia(){
   .forEach(id => document.getElementById(id).addEventListener('input', calcularMetaDia));
 
 /* ================= LOG DE ABASTECIMENTO (último arquivo por campo) ================= */
-const CAMPOS_ABASTECIMENTO = ['bipagens','diferenca','foto','embalagem','enderecos'];
+const CAMPOS_ABASTECIMENTO = ['bipagens','diferenca','foto','embalagem','enderecos','custo'];
 async function carregarLogAbastecimento(){
   try{
     const linhas = await sb('abastecimento_log');
@@ -1333,13 +1326,32 @@ function markPicked(id, text){
   document.getElementById('pick-'+id).classList.add('ok');
   document.getElementById('pick-'+id+'-info').textContent = text;
 }
+// remove arquivos com nome repetido dentro da MESMA seleção — evita contar o mesmo
+// inventário/rua duas vezes se a pessoa acabar selecionando o mesmo arquivo por engano
+// (agora que ganhos_perdas_detalhe acrescenta em vez de sobrescrever, isso importa mais)
+function semNomesRepetidos(files, campoLabel){
+  const vistos = new Set();
+  const unicos = [];
+  let repetidos = 0;
+  for(const f of files){
+    if(vistos.has(f.name)){ repetidos++; continue; }
+    vistos.add(f.name);
+    unicos.push(f);
+  }
+  if(repetidos > 0){
+    log('⚠ ' + repetidos + ' arquivo(s) repetido(s) por nome em "' + campoLabel + '" foram ignorados — confira se não selecionou o mesmo arquivo duas vezes.', 'warn');
+  }
+  return unicos;
+}
 document.getElementById('input-bipagens').addEventListener('change', e=>{
-  state.bipagensFiles = Array.from(e.target.files).filter(f=>f.name.endsWith('.tsv'));
-  markPicked('bipagens', state.bipagensFiles.length + ' arquivos .tsv');
+  const brutos = Array.from(e.target.files).filter(f=>f.name.endsWith('.tsv'));
+  state.bipagensFiles = semNomesRepetidos(brutos, '01 - Bipagens');
+  markPicked('bipagens', state.bipagensFiles.length + ' arquivo(s) .tsv');
 });
 document.getElementById('input-diferenca').addEventListener('change', e=>{
-  state.diferencaFiles = Array.from(e.target.files).filter(f=>f.name.endsWith('.tsv'));
-  markPicked('diferenca', state.diferencaFiles.length + ' arquivos .tsv');
+  const brutos = Array.from(e.target.files).filter(f=>f.name.endsWith('.tsv'));
+  state.diferencaFiles = semNomesRepetidos(brutos, '02 - Diferença_Por_Local');
+  markPicked('diferenca', state.diferencaFiles.length + ' arquivo(s) .tsv');
 });
 document.getElementById('input-foto').addEventListener('change', e=>{
   state.fotoFile = e.target.files[0];
@@ -1352,6 +1364,10 @@ document.getElementById('input-embalagem').addEventListener('change', e=>{
 document.getElementById('input-enderecos').addEventListener('change', e=>{
   state.enderecosFile = e.target.files[0];
   markPicked('enderecos', state.enderecosFile ? state.enderecosFile.name : '');
+});
+document.getElementById('input-custo').addEventListener('change', e=>{
+  state.custoFile = e.target.files[0];
+  markPicked('custo', state.custoFile ? state.custoFile.name : '');
 });
 
 /* ================= LOG ================= */
@@ -1442,6 +1458,26 @@ async function processar(){
   try{
     log('Iniciando processamento...');
 
+    // ---------- 0) BASE DE CUSTO (opcional, mas recomendada) ----------
+    const custoPorItem = {};
+    if(state.custoFile){
+      log('Lendo Base_Custo...');
+      const custoRows = await readXLSX(state.custoFile);
+      const idxItem = custoRows.length ? Object.keys(custoRows[0]).find(k => k.trim().toLowerCase() === 'item') : null;
+      const idxCusto = custoRows.length ? Object.keys(custoRows[0]).find(k => k.trim().toLowerCase() === 'custo') : null;
+      const idxPreco = custoRows.length ? Object.keys(custoRows[0]).find(k => k.trim().toLowerCase().startsWith('pre')) : null;
+      custoRows.forEach(r => {
+        const item = idxItem ? String(r[idxItem] || '').trim() : '';
+        if(!item) return;
+        const custo = idxCusto ? toNumber(r[idxCusto]) : 0;
+        const preco = idxPreco ? toNumber(r[idxPreco]) : 0;
+        custoPorItem[item] = custo > 0 ? custo : preco;
+      });
+      log('Base_Custo carregada: ' + Object.keys(custoPorItem).length.toLocaleString('pt-BR') + ' SKUs.');
+    } else {
+      log('⚠ Base_Custo não selecionada — usando "Valor Unitario" do arquivo de Diferença (menos confiável).', 'warn');
+    }
+
     // ---------- 1) BIPAGENS ----------
     log('Lendo 01 - Bipagens (' + state.bipagensFiles.length + ' arquivos)...');
     let bipagensTotal = 0;
@@ -1498,8 +1534,9 @@ async function processar(){
         const qtdeInv = toNumber(row[idxQtdeInv]);
         const qtdeEst = toNumber(row[idxQtdeEst]);
         const diferenca = toNumber(row[idxDiferenca]);
-        const valorUnit = toNumber(row[idxValorUnit]);
-        const valorVariacao = diferenca * valorUnit; // ASSUMIDO — confirmar no Power Query
+        const codigoTrim = String(codigo || '').trim();
+        const valorUnit = (custoPorItem[codigoTrim] > 0) ? custoPorItem[codigoTrim] : toNumber(row[idxValorUnit]);
+        const valorVariacao = diferenca * valorUnit; // Custo vem da Base_Custo (por Item); sem match, cai no "Valor Unitario" do arquivo
         const variacao = diferenca > 0 ? 'Ganho' : (diferenca < 0 ? 'Perda' : 'Saldo OK'); // ASSUMIDO
 
         itensContadosTotal += qtdeInv;
@@ -1733,31 +1770,6 @@ function mostrarResumo(r){
 }
 
 /* ================= LOGIN ================= */
-document.getElementById('btnLogin').addEventListener('click', fazerLogin);
-async function fazerLogin(){
-  const email = document.getElementById('loginEmail').value.trim();
-  const senha = document.getElementById('loginSenha').value;
-  const statusEl = document.getElementById('loginStatus');
-  if(!email || !senha){ statusEl.textContent = 'Preencha e-mail e senha.'; return; }
-  statusEl.textContent = 'Entrando...';
-  try{
-    const res = await fetch(SUPABASE_URL + '/auth/v1/token?grant_type=password', {
-      method: 'POST',
-      headers: { 'apikey': SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password: senha })
-    });
-    const data = await res.json();
-    if(!res.ok){ throw new Error(data.error_description || data.msg || 'Falha no login'); }
-    sessionAccessToken = data.access_token;
-    statusEl.textContent = '✔ Conectado como ' + email;
-    statusEl.style.color = 'var(--positive)';
-    document.getElementById('cardLogin').style.opacity = '.6';
-  }catch(err){
-    statusEl.textContent = '✖ ' + err.message;
-    statusEl.style.color = 'var(--negative)';
-  }
-}
-
 /* ================= SUCESSO / REDIRECIONAMENTO ================= */
 let redirectTimeoutId = null;
 function irParaVisaoGeral(){
@@ -1774,12 +1786,10 @@ function mostrarBotaoDashboard(){
   };
 }
 async function supabaseRequest(path, method, body, extraHeaders){
-  if(!sessionAccessToken){ throw new Error('Faça login antes de enviar (seção 0).'); }
   const res = await fetch(SUPABASE_URL + '/rest/v1/' + path, {
     method,
     headers: Object.assign({
       'apikey': SUPABASE_ANON_KEY,
-      'Authorization': 'Bearer ' + sessionAccessToken,
       'Content-Type': 'application/json'
     }, extraHeaders || {}),
     body: body ? JSON.stringify(body) : undefined
@@ -1813,24 +1823,24 @@ async function enviarSupabase(){
     }
     log('✔ ciclos_diario OK (' + diarioComCiclo.length + ' dias)', 'ok');
 
-    log('Limpando ganhos_perdas_detalhe antigo deste ciclo...');
-    await supabaseRequest('ganhos_perdas_detalhe?ciclo_id=eq.' + encodeURIComponent(cicloId), 'DELETE');
-    log('Enviando ganhos_perdas_detalhe...');
+    // ganhos_perdas_detalhe: cada arquivo cobre 1 inventário (normalmente 1 rua) — ACRESCENTA
+    // ao ciclo em vez de apagar tudo, pra não perder o histórico das ruas já processadas antes.
+    log('Enviando ganhos_perdas_detalhe (acrescentando ao ciclo, sem apagar o que já tinha)...');
     if(state.resultado.ganhosPerdas.length){
       // envia em lotes de 500 para não estourar o payload
       for(let i=0;i<state.resultado.ganhosPerdas.length;i+=500){
         await supabaseRequest('ganhos_perdas_detalhe', 'POST', state.resultado.ganhosPerdas.slice(i,i+500));
       }
     }
-    log('✔ ganhos_perdas_detalhe OK (' + state.resultado.ganhosPerdas.length + ' linhas)', 'ok');
+    log('✔ ganhos_perdas_detalhe OK (' + state.resultado.ganhosPerdas.length + ' linhas novas)', 'ok');
 
-    log('Limpando regiao_bloco_detalhe antigo deste ciclo...');
-    await supabaseRequest('regiao_bloco_detalhe?ciclo_id=eq.' + encodeURIComponent(cicloId), 'DELETE');
-    log('Enviando regiao_bloco_detalhe...');
+    // regiao_bloco_detalhe: upsert por (ciclo_id, bloco) — atualiza só os blocos que entraram
+    // nesse processamento, mantém intactos os blocos de ruas já enviadas antes.
+    log('Enviando regiao_bloco_detalhe (atualiza só os blocos processados agora)...');
     if(state.resultado.regiaoBloco.length){
-      await supabaseRequest('regiao_bloco_detalhe', 'POST', state.resultado.regiaoBloco);
+      await supabaseRequest('regiao_bloco_detalhe?on_conflict=ciclo_id,bloco', 'POST', state.resultado.regiaoBloco, { 'Prefer':'resolution=merge-duplicates' });
     }
-    log('✔ regiao_bloco_detalhe OK (' + state.resultado.regiaoBloco.length + ' linhas)', 'ok');
+    log('✔ regiao_bloco_detalhe OK (' + state.resultado.regiaoBloco.length + ' blocos)', 'ok');
 
     log('Registrando log de abastecimento...');
     const quem = document.getElementById('cfgSeuNome').value.trim() || null;
@@ -1839,7 +1849,8 @@ async function enviarSupabase(){
       { campo:'diferenca', arquivos: state.diferencaFiles.map(f=>f.name).join(', ') },
       { campo:'foto',      arquivos: state.fotoFile ? state.fotoFile.name : null },
       { campo:'embalagem', arquivos: state.embalagemFile ? state.embalagemFile.name : null },
-      { campo:'enderecos', arquivos: state.enderecosFile ? state.enderecosFile.name : null }
+      { campo:'enderecos', arquivos: state.enderecosFile ? state.enderecosFile.name : null },
+      { campo:'custo',     arquivos: state.custoFile ? state.custoFile.name : null }
     ].filter(r => r.arquivos)
      .map(r => ({ ...r, enviado_em: new Date().toISOString(), enviado_por: quem }));
     if(registros.length){
