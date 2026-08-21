@@ -485,7 +485,7 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
             <div style="display:flex; align-items:center; gap:12px;">
               <div class="filter-field" style="margin:0;">
                 <label style="margin-bottom:2px;">Mostrar</label>
-                <select id="filtro-limite-gp" onchange="renderGanhosPerdas()">
+                <select id="filtro-limite-gp" onchange="carregarGanhosPerdas()">
                   <option value="50">50</option>
                   <option value="100" selected>100</option>
                   <option value="500">500</option>
@@ -1143,7 +1143,7 @@ function setVariacaoFiltro(v, el){
   filtroVariacao = v;
   document.querySelectorAll('#chip-variacao button').forEach(b=>b.classList.remove('active','ganho','ok','perda','todos'));
   el.classList.add('active', v === 'ganho' ? 'ganho' : v === 'perda' ? 'perda' : v === 'ok' ? 'saldo' : 'todos');
-  renderGanhosPerdas();
+  carregarGanhosPerdas();
 }
 function ordenarPor(campo){
   if(ordenacaoAtual.campo === campo){ ordenacaoAtual.dir *= -1; }
@@ -1151,24 +1151,65 @@ function ordenarPor(campo){
   document.getElementById('arrow-diferenca').textContent = '';
   document.getElementById('arrow-valor').textContent = '';
   document.getElementById('arrow-' + campo).textContent = ordenacaoAtual.dir === 1 ? '▲' : '▼';
-  renderGanhosPerdas();
+  carregarGanhosPerdas();
 }
-function linhasFiltradas(){
-  let rows = ganhosPerdasData.filter(r => filtroVariacao === 'todos' ? true : r.variacao === filtroVariacao);
-  if(ordenacaoAtual.campo){
-    rows = rows.slice().sort((a,b)=> (a[ordenacaoAtual.campo] - b[ordenacaoAtual.campo]) * ordenacaoAtual.dir);
+// O filtro/ordenação/limite viram query no Postgres — o navegador nunca recebe as
+// centenas de milhares de linhas, só a página que está sendo exibida.
+const VARIACAO_DB = { ganho:'Ganho', perda:'Perda', ok:'Saldo OK' };
+function queryGanhosPerdas(){
+  let q = 'ganhos_perdas_detalhe?ciclo_id=eq.' + encodeURIComponent(cicloAtualId);
+  if(filtroVariacao !== 'todos') q += '&variacao=eq.' + encodeURIComponent(VARIACAO_DB[filtroVariacao]);
+  const campo = ordenacaoAtual.campo === 'valor' ? 'valor_diferenca'
+              : ordenacaoAtual.campo === 'diferenca' ? 'diferenca' : null;
+  if(campo) q += '&order=' + campo + '.' + (ordenacaoAtual.dir === 1 ? 'asc' : 'desc');
+  return q;
+}
+function mapaLinhaGP(g){
+  return {
+    regiao: g.regiao, codigo: g.codigo_produto, produto: g.nome_produto,
+    diferenca: g.diferenca, valor: g.valor_diferenca,
+    variacao: g.variacao === 'Ganho' ? 'ganho' : (g.variacao === 'Perda' ? 'perda' : 'ok')
+  };
+}
+// Total de linhas do filtro atual, sem baixar as linhas (Postgres conta pela gente).
+async function contarGanhosPerdas(){
+  const res = await fetch(SUPABASE_URL + '/rest/v1/' + queryGanhosPerdas() + '&select=id', {
+    method: 'HEAD',
+    headers: await authHeaders({ 'Range-Unit':'items', 'Range':'0-0', 'Prefer':'count=exact' })
+  });
+  const cr = res.headers.get('content-range') || '';
+  const total = Number(cr.split('/')[1]);
+  return Number.isFinite(total) ? total : null;
+}
+let gpCarregando = false;
+async function carregarGanhosPerdas(){
+  if(!cicloAtualId || gpCarregando) return;
+  gpCarregando = true;
+  const conta = document.getElementById('gp-count');
+  conta.textContent = 'Carregando...';
+  try{
+    const limiteSel = document.getElementById('filtro-limite-gp')?.value || '100';
+    const limite = limiteSel === 'todas' ? 5000 : Number(limiteSel);
+    const [linhas, total] = await Promise.all([
+      sb(queryGanhosPerdas() + '&limit=' + limite),
+      contarGanhosPerdas()
+    ]);
+    ganhosPerdasData = linhas.map(mapaLinhaGP);
+    renderGanhosPerdas(total, limiteSel === 'todas');
+  }catch(err){
+    conta.textContent = 'Erro ao carregar: ' + err.message;
+  }finally{
+    gpCarregando = false;
   }
-  return rows;
 }
-function renderGanhosPerdas(){
-  const rows = linhasFiltradas();
-  const limiteSel = document.getElementById('filtro-limite-gp')?.value || '100';
-  const limite = limiteSel === 'todas' ? rows.length : Number(limiteSel);
-  const rowsExibidas = rows.slice(0, limite);
-  document.getElementById('gp-count').textContent = rowsExibidas.length < rows.length
-    ? ('Exibindo ' + rowsExibidas.length.toLocaleString('pt-BR') + ' de ' + rows.length.toLocaleString('pt-BR') + ' linhas')
-    : (rows.length.toLocaleString('pt-BR') + ' linhas');
-  document.getElementById('gp-tbody').innerHTML = rowsExibidas.map(r => `
+function renderGanhosPerdas(total, tudo){
+  const rows = ganhosPerdasData;
+  const fmt = v => v.toLocaleString('pt-BR');
+  document.getElementById('gp-count').textContent =
+    (total != null && total > rows.length)
+      ? ('Exibindo ' + fmt(rows.length) + ' de ' + fmt(total) + ' linhas' + (tudo ? ' (teto de 5.000 na tela — o CSV sai completo)' : ''))
+      : (fmt(rows.length) + ' linhas');
+  document.getElementById('gp-tbody').innerHTML = rows.map(r => `
     <tr>
       <td>${r.regiao}</td>
       <td>${r.codigo}</td>
@@ -1179,8 +1220,23 @@ function renderGanhosPerdas(){
     </tr>
   `).join('');
 }
-function exportarCSV(){
-  const rows = linhasFiltradas();
+// A exportação ignora o limite da tela: baixa TODAS as linhas do filtro de Variação atual.
+async function exportarCSV(){
+  const btn = document.querySelector('.btn-export');
+  const rotulo = btn ? btn.textContent : '';
+  if(btn){ btn.disabled = true; btn.textContent = 'Gerando...'; }
+  try{
+    const brutas = await sbAll(queryGanhosPerdas(), n => {
+      if(btn) btn.textContent = 'Gerando... ' + n.toLocaleString('pt-BR');
+    });
+    gerarCSV(brutas.map(mapaLinhaGP));
+  }catch(err){
+    alert('Falha ao exportar: ' + err.message);
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = rotulo; }
+  }
+}
+function gerarCSV(rows){
   const header = ["Região do Estoque","Código do Produto","Variação","Nome do Produto","Diferença de Saldo","Valor da Diferença"];
   const lines = [header.join(';')];
   rows.forEach(r=>{
@@ -1319,22 +1375,36 @@ async function sb(path){
 }
 // Busca todas as páginas — o Supabase corta em 1000 linhas por requisição por padrão,
 // então para tabelas grandes (ex: ganhos_perdas_detalhe) precisamos paginar com Range.
-async function sbAll(path){
-  const PAGE = 1000;
-  let offset = 0;
-  let todos = [];
-  while(true){
+async function sbAll(path, aoProgredir){
+  const PAGE = 1000;      // teto por requisição imposto pelo Supabase
+  const EM_PARALELO = 6;  // buscas simultâneas — corta o tempo sem afogar a API
+  const headers = await authHeaders({ 'Range-Unit': 'items' });
+  const buscarPagina = async (offset) => {
     const res = await fetch(SUPABASE_URL + '/rest/v1/' + path, {
-      headers: await authHeaders({ 'Range-Unit': 'items', 'Range': offset + '-' + (offset + PAGE - 1) })
+      headers: Object.assign({}, headers, { 'Range': offset + '-' + (offset + PAGE - 1) })
     });
     if(res.status === 401){ exigirLogin('Sessão expirada — entre novamente.'); throw new Error('Sessão expirada'); }
     if(!res.ok) throw new Error('Falha ao consultar ' + path + ' (' + res.status + ')');
-    const pagina = await res.json();
-    todos = todos.concat(pagina);
-    if(pagina.length < PAGE) break;
-    offset += PAGE;
+    return res.json();
+  };
+
+  const primeira = await buscarPagina(0);
+  if(primeira.length < PAGE) return primeira;
+
+  const paginas = [primeira];
+  let offset = PAGE, acabou = false;
+  while(!acabou){
+    const lote = [];
+    for(let k = 0; k < EM_PARALELO; k++){ lote.push(buscarPagina(offset + k*PAGE)); }
+    const resultados = await Promise.all(lote);
+    for(const r of resultados){
+      paginas.push(r);
+      if(r.length < PAGE) acabou = true;
+    }
+    offset += EM_PARALELO * PAGE;
+    if(aoProgredir) aoProgredir(paginas.reduce((t,p)=>t+p.length, 0));
   }
-  return todos;
+  return paginas.flat();
 }
 
 async function carregarDiarioDoCiclo(cicloId){
@@ -1414,25 +1484,21 @@ function limparFiltroPeriodo(){
 }
 
 async function carregarCiclo(cicloId){
-  const [ganhosPerdas, regiaoBloco] = await Promise.all([
-    sbAll('ganhos_perdas_detalhe?ciclo_id=eq.' + encodeURIComponent(cicloId)),
-    sb('regiao_bloco_detalhe?ciclo_id=eq.' + encodeURIComponent(cicloId))
+  // O gráfico e a tabela por bloco vêm primeiro: são poucas linhas e é o que aparece na
+  // primeira dobra. O detalhe de ganhos/perdas tem centenas de milhares de linhas e é
+  // carregado sob demanda (só a página visível), então nunca segura o resto da tela.
+  const [regiaoBloco] = await Promise.all([
+    sb('regiao_bloco_detalhe?ciclo_id=eq.' + encodeURIComponent(cicloId)),
+    carregarDiarioDoCiclo(cicloId)
   ]);
-  await carregarDiarioDoCiclo(cicloId);
-
-  ganhosPerdasData = ganhosPerdas.map(g => ({
-    regiao: g.regiao, codigo: g.codigo_produto, produto: g.nome_produto,
-    diferenca: g.diferenca, valor: g.valor_diferenca,
-    variacao: g.variacao === 'Ganho' ? 'ganho' : (g.variacao === 'Perda' ? 'perda' : 'ok')
-  }));
 
   dadosBloco = regiaoBloco.map(r => ({
     bloco: r.bloco, setor: r.setor, estoque: r.qtde_estoque, inventario: r.qtde_inventario, status: r.status
   }));
-
-  renderGanhosPerdas();
   popularFiltroBloco();
   filtrarRegiao();
+
+  carregarGanhosPerdas(); // sem await: a tabela se preenche sozinha quando chegar
 }
 
 let cicloAtualResumo = null;
