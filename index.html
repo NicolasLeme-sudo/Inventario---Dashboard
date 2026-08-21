@@ -434,6 +434,16 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
         <div class="table-card table-card-fixed">
           <div class="table-toolbar">
             <span class="count" id="gp-count">— linhas</span>
+            <div class="filter-field" style="margin:0 0 0 auto;">
+              <label style="margin-bottom:2px;">Mostrar</label>
+              <select id="filtro-limite-gp" onchange="renderGanhosPerdas()">
+                <option value="50">50</option>
+                <option value="100" selected>100</option>
+                <option value="500">500</option>
+                <option value="1000">1000</option>
+                <option value="todas">Todas (pode pesar)</option>
+              </select>
+            </div>
             <button class="btn-export" onclick="exportarCSV()">⬇ Exportar CSV</button>
           </div>
           <div class="table-scroll">
@@ -736,15 +746,37 @@ function montarDadosGeral(resumo){
       pctContados: resumo.enderecos_em_estoque ? resumo.enderecos_contados/resumo.enderecos_em_estoque*100 : 0,
       pctPendentes: resumo.enderecos_em_estoque ? resumo.enderecos_pendentes/resumo.enderecos_em_estoque*100 : 0,
       acuracidade: formatPct(resumo.acuracidade_estoque*100), acuracidadePct: resumo.acuracidade_estoque*100
+    },
+    enderecosPorSegmento: {
+      'Calçados': {
+        emEstoque: resumo.enderecos_estoque_calcados, contados: resumo.enderecos_contados_calcados,
+        pendentes: (resumo.enderecos_estoque_calcados||0) - (resumo.enderecos_contados_calcados||0),
+        pctContados: resumo.enderecos_estoque_calcados ? resumo.enderecos_contados_calcados/resumo.enderecos_estoque_calcados*100 : 0,
+        pctPendentes: resumo.enderecos_estoque_calcados ? ((resumo.enderecos_estoque_calcados||0)-(resumo.enderecos_contados_calcados||0))/resumo.enderecos_estoque_calcados*100 : 0,
+        acuracidade: formatPct(resumo.acuracidade_estoque*100), acuracidadePct: resumo.acuracidade_estoque*100
+      },
+      'Vestuários': {
+        emEstoque: resumo.enderecos_estoque_vestuario, contados: resumo.enderecos_contados_vestuario,
+        pendentes: (resumo.enderecos_estoque_vestuario||0) - (resumo.enderecos_contados_vestuario||0),
+        pctContados: resumo.enderecos_estoque_vestuario ? resumo.enderecos_contados_vestuario/resumo.enderecos_estoque_vestuario*100 : 0,
+        pctPendentes: resumo.enderecos_estoque_vestuario ? ((resumo.enderecos_estoque_vestuario||0)-(resumo.enderecos_contados_vestuario||0))/resumo.enderecos_estoque_vestuario*100 : 0,
+        acuracidade: formatPct(resumo.acuracidade_estoque*100), acuracidadePct: resumo.acuracidade_estoque*100
+      }
     }
   };
   const pctItensGeral = resumo.itens_em_estoque ? resumo.itens_contados/resumo.itens_em_estoque*100 : 0;
   const pctCalcados = resumo.itens_estoque_calcados ? resumo.itens_contados_calcados/resumo.itens_estoque_calcados*100 : 0;
   const pctVestuario = resumo.itens_estoque_vestuario ? resumo.itens_contados_vestuario/resumo.itens_estoque_vestuario*100 : 0;
   const pctEnderecosGeral = resumo.enderecos_em_estoque ? resumo.enderecos_contados/resumo.enderecos_em_estoque*100 : 0;
+  const pctEnderecosCalcados = resumo.enderecos_estoque_calcados ? resumo.enderecos_contados_calcados/resumo.enderecos_estoque_calcados*100 : 0;
+  const pctEnderecosVestuario = resumo.enderecos_estoque_vestuario ? resumo.enderecos_contados_vestuario/resumo.enderecos_estoque_vestuario*100 : 0;
   donutValidado = {
     itens: { titulo: "Item Validado — Sim / Não", geral: pctItensGeral, calcados: pctCalcados, vestuario: pctVestuario },
-    enderecos: { titulo: "Endereço Validado — Sim / Não", geral: pctEnderecosGeral, calcados: null, vestuario: null }
+    enderecos: {
+      titulo: "Endereço Validado — Sim / Não", geral: pctEnderecosGeral,
+      calcados: (resumo.enderecos_estoque_calcados != null) ? pctEnderecosCalcados : null,
+      vestuario: (resumo.enderecos_estoque_vestuario != null) ? pctEnderecosVestuario : null
+    }
   };
 }
 
@@ -821,9 +853,10 @@ function renderKpis(){
   if(!dadosGeral) return;
   const segmento = document.getElementById('filtro-segmento')?.value || 'Todos';
   const itensDados = (segmento !== 'Todos' && dadosGeral.itensPorSegmento[segmento]) ? dadosGeral.itensPorSegmento[segmento] : dadosGeral.itens;
+  const enderecosDadosSeg = (segmento !== 'Todos' && dadosGeral.enderecosPorSegmento[segmento]?.emEstoque != null) ? dadosGeral.enderecosPorSegmento[segmento] : dadosGeral.enderecos;
   document.getElementById('kpi-row-itens').innerHTML = kpiRowHTML('Itens', itensDados, true);
-  document.getElementById('kpi-row-enderecos').innerHTML = kpiRowHTML('Endereços', dadosGeral.enderecos, false)
-    + (segmento !== 'Todos' ? '<div class="hint" style="grid-column:1/-1;">Endereços ainda não são segmentados por Calçados/Vestuário nesta versão — mostrando total geral.</div>' : '');
+  document.getElementById('kpi-row-enderecos').innerHTML = kpiRowHTML('Endereços', enderecosDadosSeg, false)
+    + (segmento !== 'Todos' && dadosGeral.enderecosPorSegmento[segmento]?.emEstoque == null ? '<div class="hint" style="grid-column:1/-1;">Este ciclo ainda não tem endereços segmentados (foi publicado antes dessa versão) — mostrando total geral.</div>' : '');
   renderAcuracidadeGP();
   renderKpisGanhosPerdas();
 
@@ -1041,8 +1074,13 @@ function linhasFiltradas(){
 }
 function renderGanhosPerdas(){
   const rows = linhasFiltradas();
-  document.getElementById('gp-count').textContent = rows.length + ' linhas';
-  document.getElementById('gp-tbody').innerHTML = rows.map(r => `
+  const limiteSel = document.getElementById('filtro-limite-gp')?.value || '100';
+  const limite = limiteSel === 'todas' ? rows.length : Number(limiteSel);
+  const rowsExibidas = rows.slice(0, limite);
+  document.getElementById('gp-count').textContent = rowsExibidas.length < rows.length
+    ? ('Exibindo ' + rowsExibidas.length.toLocaleString('pt-BR') + ' de ' + rows.length.toLocaleString('pt-BR') + ' linhas')
+    : (rows.length.toLocaleString('pt-BR') + ' linhas');
+  document.getElementById('gp-tbody').innerHTML = rowsExibidas.map(r => `
     <tr>
       <td>${r.regiao}</td>
       <td>${r.codigo}</td>
@@ -1696,12 +1734,24 @@ async function processar(){
     }
     const enderecosEmEstoqueTotal = enderecosUnicos.size;
     let enderecosContadosTotal = 0, enderecosPendentesTotal = 0;
-    for(const local of enderecosUnicos.keys()){
-      if(locaisContados.has(local)) enderecosContadosTotal++;
-      else enderecosPendentesTotal++;
+    let enderecosEstoqueCalcados = 0, enderecosContadosCalcados = 0;
+    let enderecosEstoqueVestuario = 0, enderecosContadosVestuario = 0;
+    for(const [local, info] of enderecosUnicos.entries()){
+      const contado = locaisContados.has(local);
+      if(contado) enderecosContadosTotal++; else enderecosPendentesTotal++;
+      const setorEndereco = DE_PARA_SEGMENTO[info.setor] || info.setor;
+      if(setorEndereco === 'Calçados'){
+        enderecosEstoqueCalcados++;
+        if(contado) enderecosContadosCalcados++;
+      } else if(setorEndereco === 'Vestuários' || setorEndereco === 'Vestuário'){
+        enderecosEstoqueVestuario++;
+        if(contado) enderecosContadosVestuario++;
+      }
     }
     log('Endereços em Estoque: ' + enderecosEmEstoqueTotal.toLocaleString('pt-BR'), 'ok');
     log('Endereços Contados: ' + enderecosContadosTotal.toLocaleString('pt-BR') + ' | Pendentes: ' + enderecosPendentesTotal.toLocaleString('pt-BR'), 'ok');
+    log('Endereços Calçados: ' + enderecosContadosCalcados.toLocaleString('pt-BR') + '/' + enderecosEstoqueCalcados.toLocaleString('pt-BR') +
+        ' | Vestuário: ' + enderecosContadosVestuario.toLocaleString('pt-BR') + '/' + enderecosEstoqueVestuario.toLocaleString('pt-BR'), 'ok');
 
     // ---------- 6) CONFIG DO CICLO ----------
     const cicloAuto = cicloAtualAuto();
@@ -1784,6 +1834,8 @@ async function processar(){
         itens_estoque_calcados: estoqueCalcados, itens_contados_calcados: itensContadosCalcados,
         itens_estoque_vestuario: estoqueVestuario, itens_contados_vestuario: itensContadosVestuario,
         enderecos_em_estoque: enderecosEmEstoqueTotal, enderecos_contados: enderecosContadosTotal, enderecos_pendentes: enderecosPendentesTotal,
+        enderecos_estoque_calcados: enderecosEstoqueCalcados, enderecos_contados_calcados: enderecosContadosCalcados,
+        enderecos_estoque_vestuario: enderecosEstoqueVestuario, enderecos_contados_vestuario: enderecosContadosVestuario,
         acuracidade_estoque: acuracidadeEstoque, balanco_itens: balancoItens, balanco_valor: balancoValor,
         total_ganhos: totalGanhosItens, total_perdas: totalPerdasItens, valor_ganhos: valorGanhos, valor_perdas: valorPerdas,
         dias_trabalhados: diasTrabalhados, media_bipes_dia: mediaBipesDia, media_pecas_dia: mediaPecasDia,
@@ -1834,6 +1886,8 @@ function mostrarResumo(r){
     ['Endereços em Estoque', r.enderecos_em_estoque],
     ['Endereços Contados', r.enderecos_contados],
     ['Endereços Pendentes', r.enderecos_pendentes],
+    ['Endereços Contados Calçados', r.enderecos_contados_calcados + ' / ' + r.enderecos_estoque_calcados],
+    ['Endereços Contados Vestuário', r.enderecos_contados_vestuario + ' / ' + r.enderecos_estoque_vestuario],
     ['Acuracidade de Estoque', (r.acuracidade_estoque*100).toFixed(2) + '%'],
     ['Balanço em Itens', r.balanco_itens],
     ['Balanço em Valor', 'R$ ' + r.balanco_valor.toLocaleString('pt-BR', {minimumFractionDigits:2})],
