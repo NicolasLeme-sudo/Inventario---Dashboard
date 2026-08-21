@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Inventário E-commerce — Vulcabras</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<link rel="icon" id="faviconLink" href="">
 <style>
 :root[data-theme="dark"]{
   --bg:#142032; --bg-deep:#031F44; --card-bg:#2C3E52; --card-border:#44576C;
@@ -19,20 +20,26 @@
   --meta-label-bg:#AFC9E8; --meta-label-text:#0B2A4A;
   --real-label-bg:#FCEBA6; --real-label-text:#7A5900;
   --curva-line:#1E7A42; --curva-label-bg:#173D27; --curva-label-text:#7CE8A4;
+
+  --topbar-bg:#031F44; --topbar-text:#FFFFFF;
+  --donut-primary:var(--accent-gold); --donut-secondary:var(--bg-deep);
 }
 :root[data-theme="light"]{
-  --bg:#F4F6F9; --bg-deep:#E9E9E9; --card-bg:#FFFFFF; --card-border:#D5DCE3;
+  --bg:#DDE1E6; --bg-deep:#C9CFD6; --card-bg:#FFFFFF; --card-border:#C2C9D2;
   --text-primary:#1A3A6B; --text-secondary:#5B6B7C;
   --accent-gold:#C9960A; --accent-gold-alt:#B8940A;
   --positive:#2E9E2E; --negative:#C0392B;
   --brand-miz:#B8940A; --brand-oly:#1A6FC4; --brand-ua:#C0392B;
-  --track-bg:#E3E8EE;
+  --track-bg:#CDD3DA;
   --chart-bg:#FFFFFF;
 
   --meta-bar:#2C5590;
   --meta-label-bg:#DCE8F7; --meta-label-text:#1A3A6B;
   --real-label-bg:#FCEFC2; --real-label-text:#8A6100;
   --curva-line:#1F8C4A; --curva-label-bg:#DCF3E3; --curva-label-text:#1B5E20;
+
+  --topbar-bg:#031F44; --topbar-text:#FFFFFF;
+  --donut-primary:#1A3A6B; --donut-secondary:#98A2AE;
 }
 *{box-sizing:border-box; margin:0; padding:0;}
 body{
@@ -46,15 +53,14 @@ button{font-family:inherit;}
 
 /* ---------- TOPBAR ---------- */
 .topbar{
-  background:var(--bg-deep); border-bottom:1px solid var(--card-border);
+  background:var(--topbar-bg); border-bottom:1px solid var(--card-border);
   padding:16px 40px 0 40px; position:sticky; top:0; z-index:50;
 }
 .topbar-row{display:flex; align-items:center; justify-content:space-between; padding-bottom:14px;}
 .header-left{display:flex; align-items:center; gap:14px;}
 .header-left img{height:34px; width:34px; object-fit:contain;}
-:root[data-theme="light"] .header-left img{filter:brightness(0) saturate(100%) invert(14%) sepia(46%) saturate(1878%) hue-rotate(190deg) brightness(94%) contrast(93%);}
-.header-titles h1{font-size:19px; font-weight:800; color:var(--text-primary); line-height:1.1;}
-.header-titles .meta{font-size:12px; color:var(--text-secondary); margin-top:3px;}
+.header-titles h1{font-size:19px; font-weight:800; color:var(--topbar-text); line-height:1.1;}
+.header-titles .meta{font-size:12px; color:#B9C4D6; margin-top:3px;}
 .header-right{display:flex; align-items:center; gap:14px;}
 .badge-fonte{
   font-size:11px; font-weight:700; letter-spacing:.5px; color:var(--accent-gold);
@@ -62,20 +68,20 @@ button{font-family:inherit;}
   text-transform:uppercase;
 }
 .theme-toggle{
-  display:flex; align-items:center; gap:8px; background:var(--card-bg);
-  border:1px solid var(--card-border); border-radius:999px; padding:6px 14px;
-  cursor:pointer; font-size:12px; color:var(--text-secondary); user-select:none;
+  display:flex; align-items:center; gap:8px; background:rgba(255,255,255,.08);
+  border:1px solid rgba(255,255,255,.25); border-radius:999px; padding:6px 14px;
+  cursor:pointer; font-size:12px; color:var(--topbar-text); user-select:none;
 }
 .theme-toggle:hover{border-color:var(--accent-gold);}
 
 .tabs{display:flex; gap:28px;}
 .tab{
-  font-size:14px; font-weight:600; color:var(--text-secondary);
+  font-size:14px; font-weight:600; color:#8FA3C0;
   padding:10px 2px 12px 2px; cursor:pointer; border-bottom:2px solid transparent;
   white-space:nowrap;
 }
-.tab:hover{color:var(--text-primary);}
-.tab.active{color:var(--text-primary); border-bottom:2px solid var(--accent-gold);}
+.tab:hover{color:var(--topbar-text);}
+.tab.active{color:var(--topbar-text); border-bottom:2px solid var(--accent-gold);}
 .tab .tag-avancado{
   font-size:9px; font-weight:700; color:var(--text-secondary); border:1px solid var(--card-border);
   border-radius:4px; padding:1px 5px; margin-left:6px; letter-spacing:.5px; vertical-align:middle;
@@ -156,8 +162,8 @@ section{margin-bottom:32px;}
 .donut-legend{display:flex; gap:16px; margin-top:10px; font-size:12px; color:var(--text-secondary);}
 .donut-legend span{display:inline-flex; align-items:center; gap:6px;}
 .dot{width:8px; height:8px; border-radius:50%; display:inline-block;}
-.dot.sim{background:var(--accent-gold);}
-.dot.nao{background:var(--bg-deep); border:1px solid var(--card-border);}
+.dot.sim{background:var(--donut-primary);}
+.dot.nao{background:var(--donut-secondary);}
 .donut-pct{font-size:22px; font-weight:300; margin-top:8px;}
 
 /* Chart card */
@@ -240,7 +246,7 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
   background:var(--bg-deep); border:1px solid var(--card-border); color:var(--text-primary);
   border-radius:6px; padding:9px 10px; font-size:13px; font-family:inherit;
 }
-#page-atualizar-inventario .field .hint{font-size:11px; color:var(--text-secondary);}
+#page-atualizar-inventario .hint{font-size:11px; color:var(--text-secondary); line-height:1.6;}
 #page-atualizar-inventario .filepick{
   border:1.5px dashed var(--card-border); border-radius:8px; padding:16px; text-align:center;
   cursor:pointer; font-size:13px; color:var(--text-secondary); transition:border-color .15s;
@@ -274,6 +280,19 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
   background:rgba(246,189,0,.08); border:1px solid var(--accent-gold); border-radius:8px;
   padding:12px 16px; font-size:12px; color:var(--text-secondary); margin-bottom:16px; line-height:1.6;
 }
+
+/* ---------- CARD EM STANDBY (Meta Dia legada) ---------- */
+.card.standby{opacity:.55; position:relative;}
+.card.standby input, .card.standby select{cursor:not-allowed;}
+.card.standby h2{color:var(--text-secondary);}
+
+/* ---------- TOOLTIP DO GRÁFICO ---------- */
+.chart-tooltip{
+  position:fixed; background:var(--card-bg); border:1px solid var(--card-border); border-radius:8px;
+  padding:10px 14px; font-size:12px; color:var(--text-primary); box-shadow:0 6px 20px rgba(0,0,0,.3);
+  z-index:200; pointer-events:none; line-height:1.7; max-width:220px;
+}
+.chart-tooltip b{color:var(--accent-gold);}
 </style>
 </head>
 <body>
@@ -371,10 +390,6 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
           </div>
           <div class="chart-local-filter">
             <div class="filter-field">
-              <label>Ciclo</label>
-              <select id="filtro-semana"></select>
-            </div>
-            <div class="filter-field">
               <label>Semana do Ano</label>
               <select id="filtro-semana-ano"></select>
             </div>
@@ -398,6 +413,7 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
           <span><i class="ln curva"></i>Curva Real <span class="hint">(razão Bipagens ÷ Itens Contados — não é %)</span></span>
         </div>
         <div class="chart-svg-wrap" id="chart-svg-wrap"></div>
+        <div class="chart-tooltip" id="chartTooltip" style="display:none;"></div>
       </div>
     </section>
 
@@ -483,10 +499,18 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
   <div class="page" id="page-atualizar-inventario">
 
     <h1>Atualizar Inventário</h1>
-    <div class="subtitle">Lê as pastas do ciclo, recalcula todas as medidas e publica no Supabase. Faça login (seção 0) antes de enviar — a escrita é liberada só para usuário autenticado. Ao concluir, o dashboard (aba Visão Geral) é atualizado na hora, sem precisar recarregar a página.</div>
+    <div class="subtitle">Abastece a base do ciclo atual e publica no Supabase. Faça login (seção 0) antes de enviar — a escrita é liberada só para usuário autenticado. Ao concluir, o dashboard (aba Visão Geral) é atualizado na hora, sem precisar recarregar a página.</div>
 
     <div class="warn-box">
       <strong>⚠️ Duas fórmulas foram inferidas, não confirmadas no Power BI:</strong> as colunas <code>Variação</code> (Ganho/Perda) e <code>Valor_Variação</code> não existem nos arquivos brutos — presumi <code>Variação = Diferença &gt; 0 ? "Ganho" : Diferença &lt; 0 ? "Perda" : "Saldo OK"</code> e <code>Valor_Variação = Diferença × Valor Unitário</code>. Confira essas duas contra o Power Query assim que possível.
+    </div>
+
+    <div class="card">
+      <h2>Identificação</h2>
+      <div class="grid">
+        <div class="field"><label>Seu nome</label><input type="text" id="cfgSeuNome" placeholder="ex: Nicolas"></div>
+      </div>
+      <div class="hint" style="margin-top:10px;">Usado só pra registrar quem abasteceu cada arquivo/atualização — não é senha, fica salvo junto do log de abastecimento abaixo.</div>
     </div>
 
     <div class="card" id="cardLogin">
@@ -504,16 +528,12 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
       <h2>1. Configuração do ciclo</h2>
       <div class="grid">
         <div class="field">
-          <label>Ciclo (Semana/Ano)</label>
-          <input type="text" id="cfgCicloId" placeholder="2026-S34" value="2026-S34">
+          <label>Semana/Ano (calculado automaticamente)</label>
+          <input type="text" id="cfgSemanaAno" readonly>
         </div>
         <div class="field">
-          <label>Semana/Ano (exibição)</label>
-          <input type="text" id="cfgSemanaAno" placeholder="34/2026" value="34/2026">
-        </div>
-        <div class="field">
-          <label>Ano do Ciclo</label>
-          <input type="number" id="cfgAnoCiclo" value="2026">
+          <label>Data de início do ciclo</label>
+          <input type="date" id="cfgDataInicio">
         </div>
         <div class="field">
           <label>Prazo Estipulado do Ciclo</label>
@@ -523,18 +543,56 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
           <label>Curva Estipulada</label>
           <input type="number" step="0.01" id="cfgCurvaEstipulada" value="2.50">
         </div>
+        <div class="field">
+          <label>Responsável pelo ciclo</label>
+          <input type="text" id="cfgResponsavel" placeholder="quem está tocando essa semana">
+        </div>
       </div>
-      <div class="hint" style="margin-top:10px;">⚠️ Troque o "Ciclo (Semana/Ano)" a cada nova semana de contagem — deixar o mesmo valor entre publicações acumula os dias de semanas diferentes num único ciclo e polui o gráfico Realizado x Meta x Curva.</div>
+      <div class="field" style="margin-top:14px;">
+        <label>Observações do ciclo</label>
+        <input type="text" id="cfgObservacoes" placeholder="ex: time reduzido essa semana, problema no WMS dia 18...">
+      </div>
+      <div class="hint" style="margin-top:10px;">O identificador do ciclo (ex: 2026-S34) agora é calculado sozinho a partir da semana atual — não precisa mais digitar isso, e evita que dias de semanas diferentes se misturem no mesmo ciclo.</div>
     </div>
 
-    <div class="card">
-      <h2>2. Constantes do Meta Dia — <span style="text-transform:none; color:var(--text-secondary); font-weight:400;">Meta Dia = ((A × B) / C) × D</span></h2>
+    <!-- ===================== META DIA — LEGADO (EM STANDBY) ===================== -->
+    <div class="card standby">
+      <h2>2a. Meta Dia — cálculo manual antigo <span class="tag-avancado">EM STANDBY</span> — <span style="text-transform:none; color:var(--text-secondary); font-weight:400;">Meta Dia = ((A × B) / C) × D</span></h2>
       <div class="grid">
-        <div class="field"><label>A — Qtde. Endereços</label><input type="number" id="cfgMetaA" value="1600"></div>
-        <div class="field"><label>B — Média Peças/Endereço</label><input type="number" step="0.01" id="cfgMetaB" value="7.38"></div>
-        <div class="field"><label>C — Ritmo (Curva)</label><input type="number" step="0.01" id="cfgMetaC" value="2.5"></div>
-        <div class="field"><label>D — Multiplicador</label><input type="number" id="cfgMetaD" value="5"></div>
+        <div class="field"><label>A — Qtde. Endereços</label><input type="number" id="cfgMetaA" value="1600" disabled></div>
+        <div class="field"><label>B — Média Peças/Endereço</label><input type="number" step="0.01" id="cfgMetaB" value="7.38" disabled></div>
+        <div class="field"><label>C — Ritmo (Curva)</label><input type="number" step="0.01" id="cfgMetaC" value="2.5" disabled></div>
+        <div class="field"><label>D — Multiplicador</label><input type="number" id="cfgMetaD" value="5" disabled></div>
       </div>
+      <div class="hint" style="margin-top:10px;">Guardado pra uma eventual imputação manual futura — hoje não alimenta mais o gráfico. Quem manda é o bloco "2b" abaixo.</div>
+    </div>
+
+    <!-- ===================== META DIA — CALCULADORA DE PRODUTIVIDADE (ATIVA) ===================== -->
+    <div class="card">
+      <h2>2b. Meta Dia — Calculadora de Produtividade <span style="text-transform:none; color:var(--text-secondary); font-weight:400;">Meta Dia = Headcount do dia × Produtividade/pessoa do setor</span></h2>
+      <div class="grid">
+        <div class="field"><label>Produtividade/pessoa — Calçados (itens/dia)</label><input type="number" id="cfgProdutividadeCalcados" value="4500"></div>
+        <div class="field"><label>Produtividade/pessoa — Vestuário (itens/dia)</label><input type="number" id="cfgProdutividadeVestuario" value="1500"></div>
+        <div class="field"><label>Headcount Padrão (quadro atual)</label><input type="number" id="cfgHeadcountPadrao" value="9"></div>
+      </div>
+      <div class="grid" style="margin-top:16px; padding-top:16px; border-top:1px dashed var(--card-border);">
+        <div class="field">
+          <label>Setor de hoje</label>
+          <select id="cfgSetorDia">
+            <option value="Calçados">Calçados</option>
+            <option value="Vestuário">Vestuário</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Headcount de hoje</label>
+          <input type="number" id="cfgHeadcountDia" value="9">
+        </div>
+        <div class="field">
+          <label>Meta Dia calculada</label>
+          <input type="text" id="cfgMetaDiaCalculada" readonly style="font-weight:700; color:var(--accent-gold);">
+        </div>
+      </div>
+      <div class="hint" style="margin-top:10px;">Esse headcount/setor vale para todos os dias que forem processados agora (seção 4). Se o Headcount de hoje vier vazio, ele usa o Headcount Padrão sozinho.</div>
     </div>
 
     <div class="card">
@@ -542,8 +600,11 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
       <div class="grid">
         <div class="field"><label>Saldo em Estoque — Calçados</label><input type="number" id="cfgEstoqueCalcados" value="637058"></div>
         <div class="field"><label>Saldo em Estoque — Vestuário</label><input type="number" id="cfgEstoqueVestuario" value="306230"></div>
+        <div class="field"><label>Local / CD do ciclo</label><input type="text" id="cfgLocalCiclo" placeholder="ex: Extrema"></div>
+        <div class="field"><label>Motivo da atualização</label><input type="text" id="cfgMotivoEstoque" placeholder="ex: novo recebimento, correção de saldo..."></div>
       </div>
-      <div class="hint" style="margin-top:10px;">Valores fixos por padrão (conforme combinado) — edite aqui manualmente se precisar, sem mexer no código.</div>
+      <div class="hint" style="margin-top:10px;">Valores fixos por padrão — edite aqui manualmente sempre que houver mudança relevante no estoque, sem mexer no código.</div>
+      <div class="hint" id="estoqueUltimaAtualizacao" style="margin-top:6px;">Última atualização: carregando...</div>
     </div>
 
     <!-- ===================== ARQUIVOS ===================== -->
@@ -551,12 +612,12 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
       <h2>4. Arquivos do ciclo</h2>
       <div class="grid">
         <label class="filepick" id="pick-bipagens">
-          📁 01 - Bipagens<br><span class="hint" id="pick-bipagens-info">selecionar pasta (.tsv)</span>
-          <input type="file" id="input-bipagens" webkitdirectory multiple>
+          📄 01 - Bipagens<br><span class="hint" id="pick-bipagens-info">selecionar 1 ou mais arquivos (.tsv)</span>
+          <input type="file" id="input-bipagens" multiple accept=".tsv">
         </label>
         <label class="filepick" id="pick-diferenca">
-          📁 02 - Diferença_Por_Local<br><span class="hint" id="pick-diferenca-info">selecionar pasta (.tsv)</span>
-          <input type="file" id="input-diferenca" webkitdirectory multiple>
+          📄 02 - Diferença_Por_Local<br><span class="hint" id="pick-diferenca-info">selecionar 1 ou mais arquivos (.tsv)</span>
+          <input type="file" id="input-diferenca" multiple accept=".tsv">
         </label>
         <label class="filepick" id="pick-foto">
           📄 03 - Foto_Estoque_Inicio.xlsx<br><span class="hint" id="pick-foto-info">selecionar arquivo</span>
@@ -570,6 +631,13 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
           📄 Base_Estoque.xlsx (endereços)<br><span class="hint" id="pick-enderecos-info">selecionar arquivo</span>
           <input type="file" id="input-enderecos" accept=".xlsx">
         </label>
+      </div>
+      <div class="grid" style="margin-top:10px;">
+        <div class="hint" id="ultimo-bipagens">Último enviado: —</div>
+        <div class="hint" id="ultimo-diferenca">Último enviado: —</div>
+        <div class="hint" id="ultimo-foto">Último enviado: —</div>
+        <div class="hint" id="ultimo-embalagem">Último enviado: —</div>
+        <div class="hint" id="ultimo-enderecos">Último enviado: —</div>
       </div>
     </div>
 
@@ -594,6 +662,7 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
     </div>
 
   </div>
+
 
 </main>
 
@@ -696,7 +765,7 @@ function kpiRowHTML(rotulo, d, comAcuracidade){
         <div class="kpi-value">${d.contados.toLocaleString('pt-BR')}</div>
         <div class="kpi-sub">${formatPct(d.pctContados)} do estoque já validado</div>
       </div>
-      <div class="mini-donut">${twoToneDonutSVG(d.pctContados, 'var(--accent-gold)', 'var(--bg-deep)', 64)}<span>${formatPct(d.pctContados)}</span></div>
+      <div class="mini-donut">${twoToneDonutSVG(d.pctContados, 'var(--donut-primary)', 'var(--donut-secondary)', 64)}<span>${formatPct(d.pctContados)}</span></div>
     </div>
     <div class="kpi-card">
       <div class="kpi-text">
@@ -704,7 +773,7 @@ function kpiRowHTML(rotulo, d, comAcuracidade){
         <div class="kpi-value">${d.pendentes.toLocaleString('pt-BR')}</div>
         <div class="kpi-sub">${formatPct(d.pctPendentes)} do estoque ainda não bipado</div>
       </div>
-      <div class="mini-donut">${twoToneDonutSVG(d.pctPendentes, 'var(--accent-gold)', 'var(--bg-deep)', 64)}<span>${formatPct(d.pctPendentes)}</span></div>
+      <div class="mini-donut">${twoToneDonutSVG(d.pctPendentes, 'var(--donut-primary)', 'var(--donut-secondary)', 64)}<span>${formatPct(d.pctPendentes)}</span></div>
     </div>
     ${acuracidadeCard}
   `;
@@ -741,7 +810,7 @@ function renderKpis(){
     document.getElementById('donut-validado-row').innerHTML = `
       <div class="donut-card donut-card--v1bg" style="grid-column: 1 / -1;">
         <div class="donut-title">Geral</div>
-        ${twoToneDonutSVG(dv.geral, 'var(--accent-gold)', 'var(--bg-deep)')}
+        ${twoToneDonutSVG(dv.geral, 'var(--donut-primary)', 'var(--donut-secondary)')}
         <div class="donut-pct">${formatPct(dv.geral)}</div>
         <div class="donut-legend"><span><i class="dot sim"></i>Sim</span><span><i class="dot nao"></i>Não</span></div>
         <div class="hint" style="margin-top:10px; text-align:center;">Endereços ainda não são segmentados por Calçados/Vestuário nesta versão.</div>
@@ -751,19 +820,19 @@ function renderKpis(){
   document.getElementById('donut-validado-row').innerHTML = `
     <div class="donut-card donut-card--v1bg">
       <div class="donut-title">Geral</div>
-      ${twoToneDonutSVG(dv.geral, 'var(--accent-gold)', 'var(--bg-deep)')}
+      ${twoToneDonutSVG(dv.geral, 'var(--donut-primary)', 'var(--donut-secondary)')}
       <div class="donut-pct">${formatPct(dv.geral)}</div>
       <div class="donut-legend"><span><i class="dot sim"></i>Sim</span><span><i class="dot nao"></i>Não</span></div>
     </div>
     <div class="donut-card donut-card--v1bg">
       <div class="donut-title">Calçados</div>
-      ${twoToneDonutSVG(dv.calcados, 'var(--accent-gold)', 'var(--bg-deep)')}
+      ${twoToneDonutSVG(dv.calcados, 'var(--donut-primary)', 'var(--donut-secondary)')}
       <div class="donut-pct">${formatPct(dv.calcados)}</div>
       <div class="donut-legend"><span><i class="dot sim"></i>Sim</span><span><i class="dot nao"></i>Não</span></div>
     </div>
     <div class="donut-card donut-card--v1bg">
       <div class="donut-title">Vestuários</div>
-      ${twoToneDonutSVG(dv.vestuario, 'var(--accent-gold)', 'var(--bg-deep)')}
+      ${twoToneDonutSVG(dv.vestuario, 'var(--donut-primary)', 'var(--donut-secondary)')}
       <div class="donut-pct">${formatPct(dv.vestuario)}</div>
       <div class="donut-legend"><span><i class="dot sim"></i>Sim</span><span><i class="dot nao"></i>Não</span></div>
     </div>
@@ -793,8 +862,7 @@ function smoothPath(points){
 }
 
 function renderChart(){
-  const semana = document.getElementById('filtro-semana').value;
-  const sRaw = semanasChart[semana];
+  const sRaw = semanasChart[cicloAtualId];
   if(!sRaw || !sRaw.dias.length){
     document.getElementById('chart-svg-wrap').innerHTML = '<div class="hint" style="padding:40px; text-align:center;">Sem dados diários para este ciclo ainda.</div>';
     return;
@@ -812,8 +880,11 @@ function renderChart(){
     meta: idxsFiltrados.map(i => sRaw.meta[i]),
     real: idxsFiltrados.map(i => sRaw.real[i]),
     curva: idxsFiltrados.map(i => sRaw.curva[i]),
+    setor: idxsFiltrados.map(i => sRaw.setor[i]),
+    headcount: idxsFiltrados.map(i => sRaw.headcount[i]),
     curvaEstipulada: sRaw.curvaEstipulada
   };
+  chartDiasAtual = s; // exposto pro tooltip de clique
   if(!s.dias.length){
     document.getElementById('chart-svg-wrap').innerHTML = '<div class="hint" style="padding:40px; text-align:center;">Nenhum dia no período selecionado.</div>';
     return;
@@ -829,7 +900,8 @@ function renderChart(){
   const totalWidth = groupW * n;
   const barW = 40;
   const baseline = 280;
-  const metaTop = 140, metaH = 140; // escala fixa de referência (100% da meta)
+  // Meta e Realizado compartilham a mesma escala, então a comparação visual entre as duas
+  // barras é honesta mesmo com a Meta Dia variando de um dia pro outro.
   const maxReal = Math.max(...s.meta, ...s.real, 1) * 1.05;
   // Curva Real é uma RAZÃO (Bipagens ÷ Itens Contados, tipicamente 1 a 3), não uma porcentagem —
   // escala própria, ancorada na Curva Estipulada (meta de referência) para dar contexto visual
@@ -843,9 +915,12 @@ function renderChart(){
     const realX = gx + barW + 6;
     const realH = (s.real[i]/maxReal) * (baseline-40);
     const realTop = baseline - realH;
+    const metaH = (s.meta[i]/maxReal) * (baseline-40);
+    const metaTop = baseline - metaH;
 
-    metaBars += `<rect x="${metaX}" y="${metaTop}" width="${barW}" height="${metaH}" rx="3" fill="var(--meta-bar)"></rect>`;
-    realBars += `<rect x="${realX}" y="${realTop}" width="${barW}" height="${realH}" rx="3" fill="var(--accent-gold)"></rect>`;
+    metaBars += `<rect x="${gx}" y="0" width="${barW*2+6}" height="${baseline}" fill="transparent" style="cursor:pointer;" onclick="mostrarTooltipDia(event, ${i})"></rect>`;
+    metaBars += `<rect x="${metaX}" y="${metaTop}" width="${barW}" height="${metaH}" rx="3" fill="var(--meta-bar)" style="pointer-events:none;"></rect>`;
+    realBars += `<rect x="${realX}" y="${realTop}" width="${barW}" height="${realH}" rx="3" fill="var(--accent-gold)" style="pointer-events:none;"></rect>`;
 
     labels += dataLabel(metaX + barW/2, metaTop - 12, Math.round(s.meta[i]).toLocaleString('pt-BR'), 'var(--meta-label-bg)', 'var(--meta-label-text)');
     labels += dataLabel(realX + barW/2, realTop - 12, Math.round(s.real[i]).toLocaleString('pt-BR'), 'var(--real-label-bg)', 'var(--real-label-text)');
@@ -888,6 +963,30 @@ function dataLabel(cx, cy, text, bg, color){
     <text x="${cx}" y="${cy+2}" text-anchor="middle" font-size="10" font-weight="700" fill="${color}" font-family="Segoe UI, sans-serif">${text}</text>
   `;
 }
+
+/* ================= TOOLTIP DE CLIQUE NO GRÁFICO ================= */
+let chartDiasAtual = null; // último "s" (já filtrado) renderizado — usado pelo tooltip
+function mostrarTooltipDia(evt, i){
+  if(!chartDiasAtual) return;
+  const s = chartDiasAtual;
+  const setor = s.setor[i] || '—';
+  const headcount = s.headcount[i];
+  const headcountTxt = (headcount === null || headcount === undefined) ? 'não registrado (usa padrão)' : headcount + ' pessoas';
+  const tt = document.getElementById('chartTooltip');
+  tt.innerHTML = `
+    <div><b>${s.dias[i]}</b> — ${setor}</div>
+    <div>Headcount: ${headcountTxt}</div>
+    <div>Meta Dia: ${Math.round(s.meta[i]).toLocaleString('pt-BR')}</div>
+    <div>Itens Contados: ${Math.round(s.real[i]).toLocaleString('pt-BR')}</div>
+    <div>Curva Real: ${s.curva[i].toFixed(2)}</div>
+  `;
+  tt.style.left = (evt.clientX + 14) + 'px';
+  tt.style.top = (evt.clientY + 14) + 'px';
+  tt.style.display = 'block';
+  evt.stopPropagation();
+}
+document.addEventListener('click', () => { document.getElementById('chartTooltip').style.display = 'none'; });
+
 
 /* ================= DADOS REAIS — GANHOS X PERDAS ================= */
 let ganhosPerdasData = [];
@@ -1012,17 +1111,13 @@ async function carregarDiarioDoCiclo(cicloId){
     meta: diario.map(d => d.meta_dia),
     real: diario.map(d => d.itens_contados_dia),
     curva: diario.map(d => d.curva_real_dia),
+    setor: diario.map(d => d.setor),
+    headcount: diario.map(d => d.headcount),
     curvaEstipulada: cicloAtualResumo ? cicloAtualResumo.curva_estipulada : 2.5
   };
   popularFiltroSemanaAno(cicloId);
   renderChart();
 }
-document.getElementById('filtro-semana').addEventListener('change', e => {
-  document.getElementById('filtro-semana-ano').value = '';
-  document.getElementById('filtro-data-inicio').value = '';
-  document.getElementById('filtro-data-fim').value = '';
-  carregarDiarioDoCiclo(e.target.value);
-});
 
 /* ================= FILTRO DE PERÍODO (Semana do Ano / De-Até) ================= */
 // Segunda-feira da semana que contém a data (string 'YYYY-MM-DD') — usado pra agrupar
@@ -1106,33 +1201,62 @@ async function carregarCiclo(cicloId){
 }
 
 let cicloAtualResumo = null;
+let cicloAtualId = null; // sempre o ciclo mais recente — não existe mais seletor manual de ciclo
 
 async function inicializarDashboard(){
   try{
-    const resumos = await sb('ciclos_resumo?order=gerado_em.desc&limit=20');
+    const resumos = await sb('ciclos_resumo?order=gerado_em.desc&limit=1');
     if(!resumos.length){
-      document.querySelector('.header-titles .meta').textContent = 'Nenhum ciclo publicado ainda — rode o Gerador para o primeiro ciclo.';
+      document.querySelector('.header-titles .meta').textContent = 'Nenhum ciclo publicado ainda — abasteça o primeiro ciclo na aba Atualizar Inventário.';
       return;
     }
     cicloAtualResumo = resumos[0];
+    cicloAtualId = cicloAtualResumo.ciclo_id;
     document.querySelector('.header-titles .meta').textContent =
       'Ciclo ' + cicloAtualResumo.semana_ano + ' · ' + cicloAtualResumo.itens_em_estoque.toLocaleString('pt-BR') +
       ' itens na foto de estoque · atualizado em ' + new Date(cicloAtualResumo.gerado_em).toLocaleString('pt-BR');
     document.getElementById('chart-sub-prazo').textContent =
       'Prazo estipulado: ' + (cicloAtualResumo.prazo_estipulado ? new Date(cicloAtualResumo.prazo_estipulado+'T00:00:00').toLocaleDateString('pt-BR') : '—') +
-      ' · único gráfico filtrável por ciclo';
-
-    const selectSemana = document.getElementById('filtro-semana');
-    selectSemana.innerHTML = resumos.map(r => `<option value="${r.ciclo_id}">${r.semana_ano}${r.ciclo_id===cicloAtualResumo.ciclo_id ? ' (atual)' : ''}</option>`).join('');
+      ' · filtrável por semana do ano ou período (De/Até)';
 
     montarDadosGeral(cicloAtualResumo);
     renderKpis();
+    preencherCamposDoCiclo(cicloAtualResumo);
 
-    await carregarCiclo(cicloAtualResumo.ciclo_id);
+    await carregarCiclo(cicloAtualId);
   }catch(err){
     console.error(err);
     document.querySelector('.header-titles .meta').textContent = 'Erro ao carregar dados do Supabase: ' + err.message;
   }
+}
+
+/* ================= REIDRATA A ABA DE ABASTECIMENTO ================= */
+// Puxa do ciclo já publicado os valores editáveis, pra quem abrir a tela ver o que está valendo
+// hoje em vez dos defaults do HTML.
+function preencherCamposDoCiclo(r){
+  const setSeTiver = (id, valor) => {
+    if(valor !== null && valor !== undefined && valor !== '') document.getElementById(id).value = valor;
+  };
+  setSeTiver('cfgPrazoEstipulado', r.prazo_estipulado);
+  setSeTiver('cfgCurvaEstipulada', r.curva_estipulada);
+  setSeTiver('cfgEstoqueCalcados', r.itens_estoque_calcados);
+  setSeTiver('cfgEstoqueVestuario', r.itens_estoque_vestuario);
+  setSeTiver('cfgProdutividadeCalcados', r.produtividade_calcados);
+  setSeTiver('cfgProdutividadeVestuario', r.produtividade_vestuario);
+  setSeTiver('cfgHeadcountPadrao', r.headcount_padrao);
+  setSeTiver('cfgResponsavel', r.responsavel_ciclo);
+  setSeTiver('cfgObservacoes', r.observacoes_ciclo);
+  setSeTiver('cfgDataInicio', r.data_inicio_ciclo);
+  setSeTiver('cfgLocalCiclo', r.local_ciclo);
+  setSeTiver('cfgMotivoEstoque', r.motivo_atualizacao_estoque);
+
+  const el = document.getElementById('estoqueUltimaAtualizacao');
+  el.textContent = r.estoque_atualizado_em
+    ? 'Última atualização: ' + new Date(r.estoque_atualizado_em).toLocaleString('pt-BR') +
+      (r.estoque_atualizado_por ? ' por ' + r.estoque_atualizado_por : '')
+    : 'Última atualização: —';
+
+  calcularMetaDia();
 }
 
 /* ================= LOGIN / ENVIO (Gerador) ================= */
@@ -1143,6 +1267,66 @@ const state = {
   bipagensFiles: [], diferencaFiles: [], fotoFile: null, embalagemFile: null, enderecosFile: null,
   resultado: null
 };
+
+/* ================= CICLO AUTOMÁTICO (semana ISO) ================= */
+// Semana ISO-8601: a semana 1 é a que contém a primeira quinta-feira do ano.
+// Assim a virada de semana separa os ciclos sozinha, sem ninguém digitar nada.
+function semanaISO(d){
+  const alvo = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const diaSemana = alvo.getUTCDay() || 7;          // segunda=1 ... domingo=7
+  alvo.setUTCDate(alvo.getUTCDate() + 4 - diaSemana); // quinta-feira daquela semana
+  const ano = alvo.getUTCFullYear();
+  const inicioAno = new Date(Date.UTC(ano, 0, 1));
+  const semana = Math.ceil(((alvo - inicioAno) / 86400000 + 1) / 7);
+  return { ano, semana };
+}
+function cicloAtualAuto(){
+  const { ano, semana } = semanaISO(new Date());
+  return { cicloId: ano + '-S' + semana, semanaAno: semana + '/' + ano, ano };
+}
+function aplicarCicloAuto(){
+  const c = cicloAtualAuto();
+  document.getElementById('cfgSemanaAno').value = c.semanaAno;
+}
+
+/* ================= CALCULADORA DE PRODUTIVIDADE ================= */
+function produtividadeDoSetor(setor){
+  return setor === 'Vestuário'
+    ? Number(document.getElementById('cfgProdutividadeVestuario').value) || 0
+    : Number(document.getElementById('cfgProdutividadeCalcados').value) || 0;
+}
+function headcountEfetivo(){
+  const doDia = document.getElementById('cfgHeadcountDia').value;
+  if(doDia === '' || doDia === null) return { valor: Number(document.getElementById('cfgHeadcountPadrao').value) || 0, confirmado: false };
+  return { valor: Number(doDia) || 0, confirmado: true };
+}
+function calcularMetaDia(){
+  const setor = document.getElementById('cfgSetorDia').value;
+  const hc = headcountEfetivo();
+  const meta = hc.valor * produtividadeDoSetor(setor);
+  document.getElementById('cfgMetaDiaCalculada').value =
+    Math.round(meta).toLocaleString('pt-BR') + (hc.confirmado ? '' : ' (headcount padrão)');
+  return meta;
+}
+['cfgSetorDia','cfgHeadcountDia','cfgHeadcountPadrao','cfgProdutividadeCalcados','cfgProdutividadeVestuario']
+  .forEach(id => document.getElementById(id).addEventListener('input', calcularMetaDia));
+
+/* ================= LOG DE ABASTECIMENTO (último arquivo por campo) ================= */
+const CAMPOS_ABASTECIMENTO = ['bipagens','diferenca','foto','embalagem','enderecos'];
+async function carregarLogAbastecimento(){
+  try{
+    const linhas = await sb('abastecimento_log');
+    const porCampo = {};
+    linhas.forEach(l => { porCampo[l.campo] = l; });
+    CAMPOS_ABASTECIMENTO.forEach(campo => {
+      const el = document.getElementById('ultimo-' + campo);
+      const reg = porCampo[campo];
+      el.textContent = reg
+        ? 'Último: ' + reg.arquivos + ' — ' + new Date(reg.enviado_em).toLocaleString('pt-BR') + (reg.enviado_por ? ' por ' + reg.enviado_por : '')
+        : 'Último enviado: —';
+    });
+  }catch(err){ console.error('Falha ao carregar log de abastecimento:', err); }
+}
 
 /* ================= UI: SELEÇÃO DE ARQUIVOS ================= */
 function markPicked(id, text){
@@ -1251,7 +1435,7 @@ async function processar(){
   document.getElementById('cardResumo').style.display = 'none';
 
   if(!state.bipagensFiles.length || !state.diferencaFiles.length || !state.fotoFile || !state.embalagemFile || !state.enderecosFile){
-    log('⚠ Selecione todos os arquivos/pastas antes de processar.', 'err');
+    log('⚠ Selecione todos os arquivos antes de processar.', 'err');
     return;
   }
 
@@ -1405,18 +1589,21 @@ async function processar(){
     log('Endereços Contados: ' + enderecosContadosTotal.toLocaleString('pt-BR') + ' | Pendentes: ' + enderecosPendentesTotal.toLocaleString('pt-BR'), 'ok');
 
     // ---------- 6) CONFIG DO CICLO ----------
-    const cicloId = document.getElementById('cfgCicloId').value.trim();
-    const semanaAno = document.getElementById('cfgSemanaAno').value.trim();
+    const cicloAuto = cicloAtualAuto();
+    const cicloId = cicloAuto.cicloId;
+    const semanaAno = cicloAuto.semanaAno;
+    const anoCiclo = cicloAuto.ano;
     const prazoEstipulado = document.getElementById('cfgPrazoEstipulado').value;
     const curvaEstipulada = Number(document.getElementById('cfgCurvaEstipulada').value);
-    const metaA = Number(document.getElementById('cfgMetaA').value);
-    const metaB = Number(document.getElementById('cfgMetaB').value);
-    const metaC = Number(document.getElementById('cfgMetaC').value);
-    const metaD = Number(document.getElementById('cfgMetaD').value);
     const estoqueCalcados = Number(document.getElementById('cfgEstoqueCalcados').value);
     const estoqueVestuario = Number(document.getElementById('cfgEstoqueVestuario').value);
 
-    const metaDia = ((metaA * metaB) / metaC) * metaD;
+    // Meta Dia agora vem da calculadora (headcount × produtividade do setor), não mais de A×B/C×D
+    const setorDia = document.getElementById('cfgSetorDia').value;
+    const hcDia = headcountEfetivo();
+    const metaDia = calcularMetaDia();
+    log('Meta Dia: ' + Math.round(metaDia).toLocaleString('pt-BR') +
+        ' (' + setorDia + ', ' + hcDia.valor + ' pessoas' + (hcDia.confirmado ? '' : ' — headcount padrão') + ')', 'ok');
 
     // ---------- 7) MEDIDAS DERIVADAS ----------
     const itensPendentesTotal = itensEmEstoqueTotal - itensContadosTotal;
@@ -1469,7 +1656,8 @@ async function processar(){
       const bipagensDia = bipagensPorDia[data] || 0;
       return {
         data, meta_dia: metaDia, itens_contados_dia: contadosDia,
-        bipagens_dia: bipagensDia, curva_real_dia: contadosDia ? bipagensDia / contadosDia : 0
+        bipagens_dia: bipagensDia, curva_real_dia: contadosDia ? bipagensDia / contadosDia : 0,
+        setor: setorDia, headcount: hcDia.confirmado ? hcDia.valor : null
       };
     });
 
@@ -1487,8 +1675,19 @@ async function processar(){
         curva_real: curvaReal, curva_estipulada: curvaEstipulada,
         novo_prazo: novoPrazo ? novoPrazo.toISOString().slice(0,10) : null,
         dias_atraso_projetado: diasAtrasoProjetado, status_prazo: statusPrazo,
-        meta_dia_config: { A: metaA, B: metaB, C: metaC, D: metaD, resultado: metaDia }
+        meta_dia_config: { setor: setorDia, headcount: hcDia.valor, headcount_confirmado: hcDia.confirmado, resultado: metaDia },
+        produtividade_calcados: Number(document.getElementById('cfgProdutividadeCalcados').value),
+        produtividade_vestuario: Number(document.getElementById('cfgProdutividadeVestuario').value),
+        headcount_padrao: Number(document.getElementById('cfgHeadcountPadrao').value),
+        responsavel_ciclo: document.getElementById('cfgResponsavel').value.trim() || null,
+        observacoes_ciclo: document.getElementById('cfgObservacoes').value.trim() || null,
+        data_inicio_ciclo: document.getElementById('cfgDataInicio').value || null,
+        local_ciclo: document.getElementById('cfgLocalCiclo').value.trim() || null,
+        motivo_atualizacao_estoque: document.getElementById('cfgMotivoEstoque').value.trim() || null,
+        estoque_atualizado_em: new Date().toISOString(),
+        estoque_atualizado_por: document.getElementById('cfgSeuNome').value.trim() || null
       },
+      anoCiclo,
       diario: ciclosDiario,
       ganhosPerdas: ganhosPerdasDetalhe.map(g=>({
         ciclo_id: cicloId,
@@ -1525,7 +1724,7 @@ function mostrarResumo(r){
     ['Balanço em Valor', 'R$ ' + r.balanco_valor.toLocaleString('pt-BR', {minimumFractionDigits:2})],
     ['Dias Trabalhados', r.dias_trabalhados],
     ['Curva Real', r.curva_real.toFixed(4)],
-    ['Meta Dia', r.meta_dia_config.resultado.toLocaleString('pt-BR')],
+    ['Meta Dia', Math.round(r.meta_dia_config.resultado).toLocaleString('pt-BR') + ' (' + r.meta_dia_config.setor + ', ' + r.meta_dia_config.headcount + ' pessoas)'],
     ['Novo Prazo', r.novo_prazo],
     ['Status Prazo', r.status_prazo],
   ];
@@ -1603,7 +1802,7 @@ async function enviarSupabase(){
     log('✔ ciclos_resumo OK', 'ok');
 
     log('Enviando ciclos_diario (upsert)...');
-    const anoCiclo = document.getElementById('cfgAnoCiclo').value;
+    const anoCiclo = state.resultado.anoCiclo;
     const diarioComCiclo = state.resultado.diario.map(d=>{
       const [dia, mes] = d.data.split('/');
       const dataISO = anoCiclo + '-' + mes + '-' + dia;
@@ -1633,6 +1832,22 @@ async function enviarSupabase(){
     }
     log('✔ regiao_bloco_detalhe OK (' + state.resultado.regiaoBloco.length + ' linhas)', 'ok');
 
+    log('Registrando log de abastecimento...');
+    const quem = document.getElementById('cfgSeuNome').value.trim() || null;
+    const registros = [
+      { campo:'bipagens',  arquivos: state.bipagensFiles.map(f=>f.name).join(', ') },
+      { campo:'diferenca', arquivos: state.diferencaFiles.map(f=>f.name).join(', ') },
+      { campo:'foto',      arquivos: state.fotoFile ? state.fotoFile.name : null },
+      { campo:'embalagem', arquivos: state.embalagemFile ? state.embalagemFile.name : null },
+      { campo:'enderecos', arquivos: state.enderecosFile ? state.enderecosFile.name : null }
+    ].filter(r => r.arquivos)
+     .map(r => ({ ...r, enviado_em: new Date().toISOString(), enviado_por: quem }));
+    if(registros.length){
+      await supabaseRequest('abastecimento_log?on_conflict=campo', 'POST', registros, { 'Prefer':'resolution=merge-duplicates' });
+    }
+    await carregarLogAbastecimento();
+    log('✔ abastecimento_log OK', 'ok');
+
     log('🎉 Ciclo ' + cicloId + ' publicado com sucesso no Supabase!', 'ok');
     log('Indo para a Visão Geral em 3 segundos...', 'ok');
     mostrarBotaoDashboard();
@@ -1647,6 +1862,10 @@ async function enviarSupabase(){
 
 /* ================= INIT ================= */
 applyLogo();
+document.getElementById('faviconLink').href = LOGO_DATA.favicon;
+aplicarCicloAuto();
+calcularMetaDia();
+carregarLogAbastecimento();
 inicializarDashboard();
 // recalcula a largura por dia do gráfico quando a janela muda de tamanho
 let resizeTimer = null;
