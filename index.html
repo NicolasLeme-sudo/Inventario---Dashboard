@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Inventário E-commerce — Vulcabras</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 :root[data-theme="dark"]{
   --bg:#142032; --bg-deep:#031F44; --card-bg:#2C3E52; --card-border:#44576C;
@@ -226,6 +227,53 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
   .grid-2, .grid-2-eq{grid-template-columns:1fr;}
   .table-card-fixed, .donut-card-fixed{height:auto;}
 }
+
+/* ---------- ATUALIZAR INVENTÁRIO (aba embutida do Gerador) ---------- */
+#page-atualizar-inventario h1{font-size:20px; font-weight:800; margin-bottom:4px;}
+#page-atualizar-inventario .subtitle{font-size:13px; color:var(--text-secondary); margin-bottom:28px;}
+#page-atualizar-inventario .card{background:var(--card-bg); border:1px solid var(--card-border); border-radius:10px; padding:20px 24px; margin-bottom:20px;}
+#page-atualizar-inventario .card h2{font-size:13px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:var(--accent-gold); margin-bottom:16px;}
+#page-atualizar-inventario .grid{display:grid; grid-template-columns:repeat(auto-fit, minmax(220px,1fr)); gap:16px;}
+#page-atualizar-inventario .field{display:flex; flex-direction:column; gap:6px;}
+#page-atualizar-inventario .field label{font-size:12px; color:var(--text-secondary);}
+#page-atualizar-inventario .field input, #page-atualizar-inventario .field select{
+  background:var(--bg-deep); border:1px solid var(--card-border); color:var(--text-primary);
+  border-radius:6px; padding:9px 10px; font-size:13px; font-family:inherit;
+}
+#page-atualizar-inventario .field .hint{font-size:11px; color:var(--text-secondary);}
+#page-atualizar-inventario .filepick{
+  border:1.5px dashed var(--card-border); border-radius:8px; padding:16px; text-align:center;
+  cursor:pointer; font-size:13px; color:var(--text-secondary); transition:border-color .15s;
+}
+#page-atualizar-inventario .filepick:hover{border-color:var(--accent-gold);}
+#page-atualizar-inventario .filepick.ok{border-color:var(--positive); color:var(--positive);}
+#page-atualizar-inventario .filepick input{display:none;}
+#page-atualizar-inventario .btn{
+  background:var(--accent-gold); color:#1A1500; border:none; border-radius:8px;
+  padding:12px 22px; font-size:14px; font-weight:700; cursor:pointer; font-family:inherit;
+}
+#page-atualizar-inventario .btn:hover{opacity:.9;}
+#page-atualizar-inventario .btn:disabled{opacity:.4; cursor:not-allowed;}
+#page-atualizar-inventario .btn.secondary{background:var(--card-border); color:var(--text-primary);}
+#page-atualizar-inventario .actions{display:flex; gap:12px; align-items:center; margin:20px 0;}
+#page-atualizar-inventario .log{
+  background:var(--bg-deep); border:1px solid var(--card-border); border-radius:8px;
+  padding:14px 16px; font-size:12px; font-family:"Cascadia Code",Consolas,monospace;
+  color:var(--text-secondary); max-height:280px; overflow-y:auto; white-space:pre-wrap; line-height:1.6;
+}
+#page-atualizar-inventario .log .ok{color:var(--positive);}
+#page-atualizar-inventario .log .err{color:var(--negative);}
+#page-atualizar-inventario .log .warn{color:var(--accent-gold);}
+#page-atualizar-inventario table{width:100%; border-collapse:collapse; font-size:13px; margin-top:8px;}
+#page-atualizar-inventario table th{text-align:left; font-size:11px; text-transform:uppercase; color:var(--text-secondary); padding:8px; border-bottom:1px solid var(--card-border);}
+#page-atualizar-inventario table td{padding:8px; border-bottom:1px solid var(--card-border);}
+#page-atualizar-inventario .status{font-size:12px; padding:2px 8px; border-radius:999px; font-weight:700;}
+#page-atualizar-inventario .status.pending{background:rgba(147,165,184,.2); color:var(--text-secondary);}
+#page-atualizar-inventario .status.done{background:rgba(69,198,69,.15); color:var(--positive);}
+#page-atualizar-inventario .warn-box{
+  background:rgba(246,189,0,.08); border:1px solid var(--accent-gold); border-radius:8px;
+  padding:12px 16px; font-size:12px; color:var(--text-secondary); margin-bottom:16px; line-height:1.6;
+}
 </style>
 </head>
 <body>
@@ -251,6 +299,7 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
     <div class="tab active" data-page="visao-geral" onclick="showPage('visao-geral', this)">Visão Geral</div>
     <div class="tab" data-page="ganhos-perdas" onclick="showPage('ganhos-perdas', this)">Ganhos x Perdas</div>
     <div class="tab" data-page="regiao" onclick="showPage('regiao', this)">Detalhado por Região <span class="tag-avancado">AVANÇADO</span></div>
+    <div class="tab" data-page="atualizar-inventario" onclick="showPage('atualizar-inventario', this)">Atualizar Inventário <span class="tag-avancado">AVANÇADO</span></div>
   </div>
 </div>
 
@@ -318,12 +367,28 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
         <div class="chart-card-head">
           <div>
             <div class="chart-title">Realizado x Meta x Curva</div>
-            <div class="chart-sub" id="chart-sub-prazo">Prazo estipulado: — · único gráfico filtrável por data / semana</div>
+            <div class="chart-sub" id="chart-sub-prazo">Prazo estipulado: — · filtrável por ciclo, semana do ano ou período (De/Até)</div>
           </div>
           <div class="chart-local-filter">
             <div class="filter-field">
               <label>Ciclo</label>
               <select id="filtro-semana"></select>
+            </div>
+            <div class="filter-field">
+              <label>Semana do Ano</label>
+              <select id="filtro-semana-ano"></select>
+            </div>
+            <div class="filter-field">
+              <label>De</label>
+              <input type="date" id="filtro-data-inicio">
+            </div>
+            <div class="filter-field">
+              <label>Até</label>
+              <input type="date" id="filtro-data-fim">
+            </div>
+            <div class="filter-field" style="margin-bottom:0;">
+              <label>&nbsp;</label>
+              <button class="btn-export" id="btnLimparPeriodo" onclick="limparFiltroPeriodo()" style="padding:7px 14px;">Limpar</button>
             </div>
           </div>
         </div>
@@ -411,6 +476,122 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
         </table>
       </div>
     </section>
+
+  </div>
+
+  <!-- ===================== PÁGINA: ATUALIZAR INVENTÁRIO (ex-Gerador) ===================== -->
+  <div class="page" id="page-atualizar-inventario">
+
+    <h1>Atualizar Inventário</h1>
+    <div class="subtitle">Lê as pastas do ciclo, recalcula todas as medidas e publica no Supabase. Faça login (seção 0) antes de enviar — a escrita é liberada só para usuário autenticado. Ao concluir, o dashboard (aba Visão Geral) é atualizado na hora, sem precisar recarregar a página.</div>
+
+    <div class="warn-box">
+      <strong>⚠️ Duas fórmulas foram inferidas, não confirmadas no Power BI:</strong> as colunas <code>Variação</code> (Ganho/Perda) e <code>Valor_Variação</code> não existem nos arquivos brutos — presumi <code>Variação = Diferença &gt; 0 ? "Ganho" : Diferença &lt; 0 ? "Perda" : "Saldo OK"</code> e <code>Valor_Variação = Diferença × Valor Unitário</code>. Confira essas duas contra o Power Query assim que possível.
+    </div>
+
+    <div class="card" id="cardLogin">
+      <h2>0. Login (substitui a chave secreta)</h2>
+      <div class="grid">
+        <div class="field"><label>E-mail</label><input type="email" id="loginEmail" placeholder="seu@email.com"></div>
+        <div class="field"><label>Senha</label><input type="password" id="loginSenha"></div>
+      </div>
+      <div class="actions"><button class="btn" id="btnLogin">🔑 Entrar</button></div>
+      <div class="hint" id="loginStatus" style="margin-top:8px;">Não conectado.</div>
+    </div>
+
+    <!-- ===================== CONFIGURAÇÃO DO CICLO ===================== -->
+    <div class="card">
+      <h2>1. Configuração do ciclo</h2>
+      <div class="grid">
+        <div class="field">
+          <label>Ciclo (Semana/Ano)</label>
+          <input type="text" id="cfgCicloId" placeholder="2026-S34" value="2026-S34">
+        </div>
+        <div class="field">
+          <label>Semana/Ano (exibição)</label>
+          <input type="text" id="cfgSemanaAno" placeholder="34/2026" value="34/2026">
+        </div>
+        <div class="field">
+          <label>Ano do Ciclo</label>
+          <input type="number" id="cfgAnoCiclo" value="2026">
+        </div>
+        <div class="field">
+          <label>Prazo Estipulado do Ciclo</label>
+          <input type="date" id="cfgPrazoEstipulado" value="2026-09-07">
+        </div>
+        <div class="field">
+          <label>Curva Estipulada</label>
+          <input type="number" step="0.01" id="cfgCurvaEstipulada" value="2.50">
+        </div>
+      </div>
+      <div class="hint" style="margin-top:10px;">⚠️ Troque o "Ciclo (Semana/Ano)" a cada nova semana de contagem — deixar o mesmo valor entre publicações acumula os dias de semanas diferentes num único ciclo e polui o gráfico Realizado x Meta x Curva.</div>
+    </div>
+
+    <div class="card">
+      <h2>2. Constantes do Meta Dia — <span style="text-transform:none; color:var(--text-secondary); font-weight:400;">Meta Dia = ((A × B) / C) × D</span></h2>
+      <div class="grid">
+        <div class="field"><label>A — Qtde. Endereços</label><input type="number" id="cfgMetaA" value="1600"></div>
+        <div class="field"><label>B — Média Peças/Endereço</label><input type="number" step="0.01" id="cfgMetaB" value="7.38"></div>
+        <div class="field"><label>C — Ritmo (Curva)</label><input type="number" step="0.01" id="cfgMetaC" value="2.5"></div>
+        <div class="field"><label>D — Multiplicador</label><input type="number" id="cfgMetaD" value="5"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>3. Estoque por Segmento (tabela manual — dEstoque_Segmento)</h2>
+      <div class="grid">
+        <div class="field"><label>Saldo em Estoque — Calçados</label><input type="number" id="cfgEstoqueCalcados" value="637058"></div>
+        <div class="field"><label>Saldo em Estoque — Vestuário</label><input type="number" id="cfgEstoqueVestuario" value="306230"></div>
+      </div>
+      <div class="hint" style="margin-top:10px;">Valores fixos por padrão (conforme combinado) — edite aqui manualmente se precisar, sem mexer no código.</div>
+    </div>
+
+    <!-- ===================== ARQUIVOS ===================== -->
+    <div class="card">
+      <h2>4. Arquivos do ciclo</h2>
+      <div class="grid">
+        <label class="filepick" id="pick-bipagens">
+          📁 01 - Bipagens<br><span class="hint" id="pick-bipagens-info">selecionar pasta (.tsv)</span>
+          <input type="file" id="input-bipagens" webkitdirectory multiple>
+        </label>
+        <label class="filepick" id="pick-diferenca">
+          📁 02 - Diferença_Por_Local<br><span class="hint" id="pick-diferenca-info">selecionar pasta (.tsv)</span>
+          <input type="file" id="input-diferenca" webkitdirectory multiple>
+        </label>
+        <label class="filepick" id="pick-foto">
+          📄 03 - Foto_Estoque_Inicio.xlsx<br><span class="hint" id="pick-foto-info">selecionar arquivo</span>
+          <input type="file" id="input-foto" accept=".xlsx">
+        </label>
+        <label class="filepick" id="pick-embalagem">
+          📄 Base_Embalagem.xlsx<br><span class="hint" id="pick-embalagem-info">selecionar arquivo</span>
+          <input type="file" id="input-embalagem" accept=".xlsx">
+        </label>
+        <label class="filepick" id="pick-enderecos">
+          📄 Base_Estoque.xlsx (endereços)<br><span class="hint" id="pick-enderecos-info">selecionar arquivo</span>
+          <input type="file" id="input-enderecos" accept=".xlsx">
+        </label>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="btn" id="btnProcessar">▶ Processar ciclo</button>
+      <button class="btn secondary" id="btnEnviar" disabled>⬆ Enviar para Supabase</button>
+    </div>
+
+    <div class="actions" id="successBox" style="display:none;">
+      <button class="btn" id="btnIrDashboard">📊 Ver Visão Geral atualizada</button>
+      <button class="btn secondary" id="btnCancelarRedirect">Ficar aqui (cancelar redirecionamento)</button>
+    </div>
+
+    <div class="card" id="cardLog" style="display:none;">
+      <h2>Log</h2>
+      <div class="log" id="log"></div>
+    </div>
+
+    <div class="card" id="cardResumo" style="display:none;">
+      <h2>5. Resumo calculado — confira antes de enviar</h2>
+      <table id="tblResumo"><tbody></tbody></table>
+    </div>
 
   </div>
 
@@ -613,9 +794,28 @@ function smoothPath(points){
 
 function renderChart(){
   const semana = document.getElementById('filtro-semana').value;
-  const s = semanasChart[semana];
-  if(!s || !s.dias.length){
+  const sRaw = semanasChart[semana];
+  if(!sRaw || !sRaw.dias.length){
     document.getElementById('chart-svg-wrap').innerHTML = '<div class="hint" style="padding:40px; text-align:center;">Sem dados diários para este ciclo ainda.</div>';
+    return;
+  }
+
+  // filtro de período (De/Até) — aplicado sobre as datas ISO reais, não sobre o rótulo dd/mm
+  const dataIni = document.getElementById('filtro-data-inicio').value;
+  const dataFim = document.getElementById('filtro-data-fim').value;
+  let idxsFiltrados = sRaw.diasISO.map((_, i) => i);
+  if(dataIni) idxsFiltrados = idxsFiltrados.filter(i => sRaw.diasISO[i] >= dataIni);
+  if(dataFim) idxsFiltrados = idxsFiltrados.filter(i => sRaw.diasISO[i] <= dataFim);
+  const s = {
+    dias: idxsFiltrados.map(i => sRaw.dias[i]),
+    diasISO: idxsFiltrados.map(i => sRaw.diasISO[i]),
+    meta: idxsFiltrados.map(i => sRaw.meta[i]),
+    real: idxsFiltrados.map(i => sRaw.real[i]),
+    curva: idxsFiltrados.map(i => sRaw.curva[i]),
+    curvaEstipulada: sRaw.curvaEstipulada
+  };
+  if(!s.dias.length){
+    document.getElementById('chart-svg-wrap').innerHTML = '<div class="hint" style="padding:40px; text-align:center;">Nenhum dia no período selecionado.</div>';
     return;
   }
   const n = s.dias.length;
@@ -806,18 +1006,83 @@ async function sb(path){
 
 async function carregarDiarioDoCiclo(cicloId){
   const diario = await sb('ciclos_diario?ciclo_id=eq.' + encodeURIComponent(cicloId) + '&order=data.asc');
-  console.log("CICLO SELECIONADO:", cicloId);
-  console.log("DADOS RETORNADOS:", diario);
   semanasChart[cicloId] = {
     dias: diario.map(d => { const [a,m,dd] = d.data.split('-'); return dd + '/' + m; }),
+    diasISO: diario.map(d => d.data),
     meta: diario.map(d => d.meta_dia),
     real: diario.map(d => d.itens_contados_dia),
     curva: diario.map(d => d.curva_real_dia),
     curvaEstipulada: cicloAtualResumo ? cicloAtualResumo.curva_estipulada : 2.5
   };
+  popularFiltroSemanaAno(cicloId);
   renderChart();
 }
-document.getElementById('filtro-semana').addEventListener('change', e => carregarDiarioDoCiclo(e.target.value));
+document.getElementById('filtro-semana').addEventListener('change', e => {
+  document.getElementById('filtro-semana-ano').value = '';
+  document.getElementById('filtro-data-inicio').value = '';
+  document.getElementById('filtro-data-fim').value = '';
+  carregarDiarioDoCiclo(e.target.value);
+});
+
+/* ================= FILTRO DE PERÍODO (Semana do Ano / De-Até) ================= */
+// Segunda-feira da semana que contém a data (string 'YYYY-MM-DD') — usado pra agrupar
+// os dias do ciclo em blocos de semana, já que o "Ciclo" no Supabase pode acumular
+// várias semanas reais sob um único ciclo_id.
+function segundaFeiraDe(dataISO){
+  const d = new Date(dataISO + 'T00:00:00');
+  const diaSemana = d.getDay(); // 0 = domingo
+  const diff = diaSemana === 0 ? -6 : 1 - diaSemana;
+  d.setDate(d.getDate() + diff);
+  return d;
+}
+function paraISO(d){ return d.toISOString().slice(0,10); }
+function fmtDDMM(d){ return String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0'); }
+
+function popularFiltroSemanaAno(cicloId){
+  const s = semanasChart[cicloId];
+  const sel = document.getElementById('filtro-semana-ano');
+  if(!s || !s.diasISO.length){ sel.innerHTML = '<option value="">Todas</option>'; return; }
+  const semanas = new Map(); // chave: segunda-feira ISO -> {inicio, fim}
+  s.diasISO.forEach(dataISO => {
+    const inicio = segundaFeiraDe(dataISO);
+    const chave = paraISO(inicio);
+    if(!semanas.has(chave)){
+      const fim = new Date(inicio); fim.setDate(fim.getDate() + 6);
+      semanas.set(chave, { inicio, fim });
+    }
+  });
+  const ordenadas = [...semanas.entries()].sort((a,b) => a[0] < b[0] ? -1 : 1);
+  sel.innerHTML = '<option value="">Todas</option>' + ordenadas.map(([chave, r]) =>
+    `<option value="${chave}">${fmtDDMM(r.inicio)} – ${fmtDDMM(r.fim)}</option>`
+  ).join('');
+}
+
+document.getElementById('filtro-semana-ano').addEventListener('change', e => {
+  const chave = e.target.value;
+  if(!chave){
+    document.getElementById('filtro-data-inicio').value = '';
+    document.getElementById('filtro-data-fim').value = '';
+  } else {
+    const fim = new Date(chave + 'T00:00:00'); fim.setDate(fim.getDate() + 6);
+    document.getElementById('filtro-data-inicio').value = chave;
+    document.getElementById('filtro-data-fim').value = paraISO(fim);
+  }
+  renderChart();
+});
+document.getElementById('filtro-data-inicio').addEventListener('change', () => {
+  document.getElementById('filtro-semana-ano').value = '';
+  renderChart();
+});
+document.getElementById('filtro-data-fim').addEventListener('change', () => {
+  document.getElementById('filtro-semana-ano').value = '';
+  renderChart();
+});
+function limparFiltroPeriodo(){
+  document.getElementById('filtro-semana-ano').value = '';
+  document.getElementById('filtro-data-inicio').value = '';
+  document.getElementById('filtro-data-fim').value = '';
+  renderChart();
+}
 
 async function carregarCiclo(cicloId){
   const [ganhosPerdas, regiaoBloco] = await Promise.all([
@@ -867,6 +1132,516 @@ async function inicializarDashboard(){
   }catch(err){
     console.error(err);
     document.querySelector('.header-titles .meta').textContent = 'Erro ao carregar dados do Supabase: ' + err.message;
+  }
+}
+
+/* ================= LOGIN / ENVIO (Gerador) ================= */
+let sessionAccessToken = null; // preenchido após login
+
+/* ================= ESTADO ================= */
+const state = {
+  bipagensFiles: [], diferencaFiles: [], fotoFile: null, embalagemFile: null, enderecosFile: null,
+  resultado: null
+};
+
+/* ================= UI: SELEÇÃO DE ARQUIVOS ================= */
+function markPicked(id, text){
+  document.getElementById('pick-'+id).classList.add('ok');
+  document.getElementById('pick-'+id+'-info').textContent = text;
+}
+document.getElementById('input-bipagens').addEventListener('change', e=>{
+  state.bipagensFiles = Array.from(e.target.files).filter(f=>f.name.endsWith('.tsv'));
+  markPicked('bipagens', state.bipagensFiles.length + ' arquivos .tsv');
+});
+document.getElementById('input-diferenca').addEventListener('change', e=>{
+  state.diferencaFiles = Array.from(e.target.files).filter(f=>f.name.endsWith('.tsv'));
+  markPicked('diferenca', state.diferencaFiles.length + ' arquivos .tsv');
+});
+document.getElementById('input-foto').addEventListener('change', e=>{
+  state.fotoFile = e.target.files[0];
+  markPicked('foto', state.fotoFile ? state.fotoFile.name : '');
+});
+document.getElementById('input-embalagem').addEventListener('change', e=>{
+  state.embalagemFile = e.target.files[0];
+  markPicked('embalagem', state.embalagemFile ? state.embalagemFile.name : '');
+});
+document.getElementById('input-enderecos').addEventListener('change', e=>{
+  state.enderecosFile = e.target.files[0];
+  markPicked('enderecos', state.enderecosFile ? state.enderecosFile.name : '');
+});
+
+/* ================= LOG ================= */
+function log(msg, cls){
+  document.getElementById('cardLog').style.display = 'block';
+  const el = document.getElementById('log');
+  const span = document.createElement('div');
+  if(cls) span.className = cls;
+  span.textContent = msg;
+  el.appendChild(span);
+  el.scrollTop = el.scrollHeight;
+}
+
+/* ================= LEITURA DE ARQUIVOS ================= */
+function readFileAsText(file){
+  return new Promise((resolve, reject)=>{
+    const r = new FileReader();
+    r.onload = ()=>resolve(r.result);
+    r.onerror = reject;
+    r.readAsText(file, 'utf-8');
+  });
+}
+function readFileAsArrayBuffer(file){
+  return new Promise((resolve, reject)=>{
+    const r = new FileReader();
+    r.onload = ()=>resolve(r.result);
+    r.onerror = reject;
+    r.readAsArrayBuffer(file);
+  });
+}
+function parseTSV(text){
+  const lines = text.split(/\r\n|\n/).filter(l=>l.length>0);
+  if(lines.length === 0) return { header: [], rows: [] };
+  const header = lines[0].split('\t');
+  const rows = [];
+  for(let i=1;i<lines.length;i++){
+    rows.push(lines[i].split('\t'));
+  }
+  return { header, rows };
+}
+function colIndex(header, name){
+  return header.indexOf(name);
+}
+function toNumber(str){
+  if(!str) return 0;
+  // trata "1.234,56" (pt-BR) e "1234.56" (en-US) dependendo do que vier no arquivo
+  let s = String(str).trim();
+  if(s.includes(',') && s.includes('.')){
+    s = s.replace(/\./g,'').replace(',','.');
+  } else if(s.includes(',')){
+    s = s.replace(',', '.');
+  }
+  const n = parseFloat(s);
+  return isNaN(n) ? 0 : n;
+}
+// Data_Contagem = Text.Start(nome,2) & "/" & Text.Middle(nome,2,2)
+function dataContagemFromFileName(fileName){
+  const nome = fileName.replace(/\.tsv$/i, '');
+  return nome.substring(0,2) + '/' + nome.substring(2,4);
+}
+async function readXLSX(file){
+  const buf = await readFileAsArrayBuffer(file);
+  const wb = XLSX.read(buf, { type:'array' });
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  return XLSX.utils.sheet_to_json(sheet, { defval: null });
+}
+
+/* ================= DE-PARA SEGMENTO ================= */
+const DE_PARA_SEGMENTO = {
+  "Calçados": "Calçados", "Chinelos": "Calçados",
+  "Vestuários": "Vestuários", "Acessórios": "Vestuários", "Meias": "Vestuários"
+};
+
+/* ================= PROCESSAMENTO PRINCIPAL ================= */
+document.getElementById('btnProcessar').addEventListener('click', processar);
+document.getElementById('btnEnviar').addEventListener('click', enviarSupabase);
+
+async function processar(){
+  document.getElementById('log').innerHTML = '';
+  document.getElementById('btnEnviar').disabled = true;
+  document.getElementById('cardResumo').style.display = 'none';
+
+  if(!state.bipagensFiles.length || !state.diferencaFiles.length || !state.fotoFile || !state.embalagemFile || !state.enderecosFile){
+    log('⚠ Selecione todos os arquivos/pastas antes de processar.', 'err');
+    return;
+  }
+
+  try{
+    log('Iniciando processamento...');
+
+    // ---------- 1) BIPAGENS ----------
+    log('Lendo 01 - Bipagens (' + state.bipagensFiles.length + ' arquivos)...');
+    let bipagensTotal = 0;
+    const bipagensPorDia = {}; // data -> total
+    for(const file of state.bipagensFiles){
+      const data = dataContagemFromFileName(file.name);
+      const text = await readFileAsText(file);
+      const { header, rows } = parseTSV(text);
+      const countIdxs = [];
+      for(let i=1;i<=10;i++){
+        const idx = colIndex(header, i + 'ª Contagem');
+        if(idx >= 0) countIdxs.push(idx);
+      }
+      let totalArquivo = 0;
+      for(const row of rows){
+        for(const idx of countIdxs){
+          totalArquivo += toNumber(row[idx]);
+        }
+      }
+      bipagensTotal += totalArquivo;
+      bipagensPorDia[data] = (bipagensPorDia[data] || 0) + totalArquivo;
+    }
+    log('Bipagens total: ' + bipagensTotal.toLocaleString('pt-BR'), 'ok');
+
+    // ---------- 2) DIFERENÇA POR LOCAL (fHistórico_Itens) ----------
+    log('Lendo 02 - Diferença_Por_Local (' + state.diferencaFiles.length + ' arquivos)...');
+    let itensContadosTotal = 0;
+    const itensContadosPorDia = {};
+    const locaisContados = new Set();
+    let balancoItens = 0, balancoValor = 0;
+    let totalGanhosItens = 0, totalPerdasItens = 0, valorGanhos = 0, valorPerdas = 0;
+    const acuraciaRatios = [];
+    const somaQtdePorSKU = {}; // sku -> soma Qtde. Inventário (p/ segmentar depois)
+    const ganhosPerdasDetalhe = []; // linhas para a tabela exportável
+    const somaPorLocal = {}; // local -> { estoque, inventario } (p/ tabela por bloco)
+
+    for(const file of state.diferencaFiles){
+      const data = dataContagemFromFileName(file.name);
+      const text = await readFileAsText(file);
+      const { header, rows } = parseTSV(text);
+      const idxLocal = colIndex(header, 'Local');
+      const idxCodigo = colIndex(header, 'Código do Produto');
+      const idxProduto = colIndex(header, 'Produto');
+      const idxQtdeInv = colIndex(header, 'Qtde. Inventário');
+      const idxQtdeEst = colIndex(header, 'Qtde. Estoque');
+      const idxDiferenca = colIndex(header, 'Diferença');
+      const idxValorUnit = colIndex(header, 'Valor Unitario');
+
+      let contadosArquivo = 0;
+      for(const row of rows){
+        const local = row[idxLocal];
+        const codigo = row[idxCodigo];
+        const produto = row[idxProduto];
+        const qtdeInv = toNumber(row[idxQtdeInv]);
+        const qtdeEst = toNumber(row[idxQtdeEst]);
+        const diferenca = toNumber(row[idxDiferenca]);
+        const valorUnit = toNumber(row[idxValorUnit]);
+        const valorVariacao = diferenca * valorUnit; // ASSUMIDO — confirmar no Power Query
+        const variacao = diferenca > 0 ? 'Ganho' : (diferenca < 0 ? 'Perda' : 'Saldo OK'); // ASSUMIDO
+
+        itensContadosTotal += qtdeInv;
+        contadosArquivo += qtdeInv;
+        if(local) locaisContados.add(local);
+
+        balancoItens += diferenca;
+        balancoValor += valorVariacao;
+        if(diferenca > 0){ totalGanhosItens += diferenca; valorGanhos += valorVariacao; }
+        if(diferenca < 0){ totalPerdasItens += diferenca; valorPerdas += valorVariacao; }
+
+        if(qtdeEst !== 0){ acuraciaRatios.push(qtdeInv / qtdeEst); }
+
+        if(codigo){ somaQtdePorSKU[codigo] = (somaQtdePorSKU[codigo] || 0) + qtdeInv; }
+
+        if(diferenca !== 0){
+          ganhosPerdasDetalhe.push({ local, codigo, produto, diferenca, valorVariacao, variacao });
+        }
+
+        if(local){
+          if(!somaPorLocal[local]) somaPorLocal[local] = { estoque:0, inventario:0 };
+          somaPorLocal[local].estoque += qtdeEst;
+          somaPorLocal[local].inventario += qtdeInv;
+        }
+      }
+      itensContadosPorDia[data] = (itensContadosPorDia[data] || 0) + contadosArquivo;
+    }
+    const acuracidadeEstoque = acuraciaRatios.length
+      ? acuraciaRatios.reduce((a,b)=>a+b,0) / acuraciaRatios.length : 0;
+    log('Itens Contados total: ' + itensContadosTotal.toLocaleString('pt-BR'), 'ok');
+    log('Endereços Contados (distintos): ' + locaisContados.size, 'ok');
+    log('Acuracidade de Estoque (AVERAGEX): ' + (acuracidadeEstoque*100).toFixed(2) + '%', 'ok');
+    log('Linhas de Ganhos/Perdas (Diferença ≠ 0): ' + ganhosPerdasDetalhe.length);
+
+    // ---------- 3) FOTO ESTOQUE INÍCIO ----------
+    log('Lendo Foto_Estoque_Inicio.xlsx...');
+    const fotoRows = await readXLSX(state.fotoFile);
+    let itensEmEstoqueTotal = 0;
+    const estoquePorBloco = {}; // bloco -> soma QTD ESTOQUE
+    for(const r of fotoRows){
+      const qtd = Number(r['QTD ESTOQUE']) || 0;
+      itensEmEstoqueTotal += qtd;
+      const bloco = r['BLOCO'];
+      if(bloco){ estoquePorBloco[bloco] = (estoquePorBloco[bloco] || 0) + qtd; }
+    }
+    log('Itens em Estoque (total): ' + itensEmEstoqueTotal.toLocaleString('pt-BR'), 'ok');
+
+    // ---------- 4) BASE EMBALAGEM (De-Para Segmento) ----------
+    log('Lendo Base_Embalagem.xlsx...');
+    const embalagemRows = await readXLSX(state.embalagemFile);
+    const skuParaSegmento2 = {};
+    for(const r of embalagemRows){
+      const sku = r['SKU'];
+      const segmentoBruto = r['SEGMENTO'];
+      if(sku && segmentoBruto){
+        skuParaSegmento2[sku] = DE_PARA_SEGMENTO[segmentoBruto] || null;
+      }
+    }
+    let itensContadosCalcados = 0, itensContadosVestuario = 0, itensNaoMapeados = 0;
+    for(const [sku, qtde] of Object.entries(somaQtdePorSKU)){
+      const seg = skuParaSegmento2[sku];
+      if(seg === 'Calçados') itensContadosCalcados += qtde;
+      else if(seg === 'Vestuários') itensContadosVestuario += qtde;
+      else itensNaoMapeados += qtde;
+    }
+    log('Itens Contados Calçados: ' + itensContadosCalcados.toLocaleString('pt-BR'), 'ok');
+    log('Itens Contados Vestuário: ' + itensContadosVestuario.toLocaleString('pt-BR'), 'ok');
+    if(itensNaoMapeados > 0) log('⚠ ' + itensNaoMapeados.toLocaleString('pt-BR') + ' itens contados não bateram com nenhum SKU da Base_Embalagem (ficam de fora da % por segmento)', 'warn');
+
+    // ---------- 5) BASE DE ENDEREÇOS (dBase_Endereços + Validado) ----------
+    log('Lendo Base_Estoque.xlsx (endereços)...');
+    const enderecosRows = await readXLSX(state.enderecosFile);
+    const enderecosUnicos = new Map(); // local -> {bloco, setor, regiao}
+    for(const r of enderecosRows){
+      const local = r['Local'];
+      if(local && !enderecosUnicos.has(local)){
+        enderecosUnicos.set(local, { bloco: r['Bloco'], setor: r['Setor'], regiao: r['Região'] });
+      }
+    }
+    const enderecosEmEstoqueTotal = enderecosUnicos.size;
+    let enderecosContadosTotal = 0, enderecosPendentesTotal = 0;
+    for(const local of enderecosUnicos.keys()){
+      if(locaisContados.has(local)) enderecosContadosTotal++;
+      else enderecosPendentesTotal++;
+    }
+    log('Endereços em Estoque: ' + enderecosEmEstoqueTotal.toLocaleString('pt-BR'), 'ok');
+    log('Endereços Contados: ' + enderecosContadosTotal.toLocaleString('pt-BR') + ' | Pendentes: ' + enderecosPendentesTotal.toLocaleString('pt-BR'), 'ok');
+
+    // ---------- 6) CONFIG DO CICLO ----------
+    const cicloId = document.getElementById('cfgCicloId').value.trim();
+    const semanaAno = document.getElementById('cfgSemanaAno').value.trim();
+    const prazoEstipulado = document.getElementById('cfgPrazoEstipulado').value;
+    const curvaEstipulada = Number(document.getElementById('cfgCurvaEstipulada').value);
+    const metaA = Number(document.getElementById('cfgMetaA').value);
+    const metaB = Number(document.getElementById('cfgMetaB').value);
+    const metaC = Number(document.getElementById('cfgMetaC').value);
+    const metaD = Number(document.getElementById('cfgMetaD').value);
+    const estoqueCalcados = Number(document.getElementById('cfgEstoqueCalcados').value);
+    const estoqueVestuario = Number(document.getElementById('cfgEstoqueVestuario').value);
+
+    const metaDia = ((metaA * metaB) / metaC) * metaD;
+
+    // ---------- 7) MEDIDAS DERIVADAS ----------
+    const itensPendentesTotal = itensEmEstoqueTotal - itensContadosTotal;
+    const itensPendentesCalcados = estoqueCalcados - itensContadosCalcados;
+    const itensPendentesVestuario = estoqueVestuario - itensContadosVestuario;
+
+    const diasTrabalhados = Object.keys(itensContadosPorDia).length;
+    const mediaBipesDia = diasTrabalhados ? bipagensTotal / diasTrabalhados : 0;
+    const mediaPecasDia = diasTrabalhados ? itensContadosTotal / diasTrabalhados : 0;
+    const curvaReal = itensContadosTotal ? bipagensTotal / itensContadosTotal : 0;
+
+    const diasNecessariosConclusao = mediaPecasDia > 0 ? itensPendentesTotal / mediaPecasDia : null;
+    let novoPrazo = null, diasAtrasoProjetado = null, statusPrazo = null;
+    if(diasNecessariosConclusao !== null){
+      const hoje = new Date();
+      novoPrazo = new Date(hoje.getTime() + Math.ceil(diasNecessariosConclusao) * 86400000);
+      const prazoEstipuladoDate = new Date(prazoEstipulado + 'T00:00:00');
+      diasAtrasoProjetado = Math.round((novoPrazo - prazoEstipuladoDate) / 86400000);
+      statusPrazo = novoPrazo <= prazoEstipuladoDate ? 'Dentro do Prazo' : 'Risco de Atraso';
+    }
+
+    // ---------- 8) POR BLOCO / SETOR ----------
+    const BLOCO_SETOR = { A:'Calçados', B:'Calçados', C:'Calçados', E:'Vestuário', F:'Vestuário', G:'Vestuário' };
+    const blocos = new Set([...Object.keys(estoquePorBloco)]);
+    for(const local of locaisContados){
+      const info = enderecosUnicos.get(local);
+      if(info && info.bloco) blocos.add(info.bloco);
+    }
+    const inventarioPorBloco = {};
+    for(const [local, somas] of Object.entries(somaPorLocal)){
+      const info = enderecosUnicos.get(local);
+      const bloco = info ? info.bloco : null;
+      if(bloco){ inventarioPorBloco[bloco] = (inventarioPorBloco[bloco] || 0) + somas.inventario; }
+    }
+    const regiaoBlocoDetalhe = [];
+    for(const bloco of blocos){
+      const estoque = estoquePorBloco[bloco] || 0;
+      const inventario = inventarioPorBloco[bloco] || 0;
+      const setor = BLOCO_SETOR[bloco] || 'Indefinido';
+      regiaoBlocoDetalhe.push({
+        bloco, setor, qtde_estoque: estoque, qtde_inventario: inventario,
+        status: inventario > 0 || estoque === 0 ? 'Validado' : 'Pendente'
+      });
+    }
+
+    // ---------- 9) DIÁRIO PARA O GRÁFICO ----------
+    const todasDatas = new Set([...Object.keys(itensContadosPorDia), ...Object.keys(bipagensPorDia)]);
+    const ciclosDiario = [...todasDatas].sort().map(data=>{
+      const contadosDia = itensContadosPorDia[data] || 0;
+      const bipagensDia = bipagensPorDia[data] || 0;
+      return {
+        data, meta_dia: metaDia, itens_contados_dia: contadosDia,
+        bipagens_dia: bipagensDia, curva_real_dia: contadosDia ? bipagensDia / contadosDia : 0
+      };
+    });
+
+    // ---------- RESULTADO FINAL ----------
+    state.resultado = {
+      resumo: {
+        ciclo_id: cicloId, semana_ano: semanaAno, prazo_estipulado: prazoEstipulado,
+        itens_em_estoque: itensEmEstoqueTotal, itens_contados: itensContadosTotal, itens_pendentes: itensPendentesTotal,
+        itens_estoque_calcados: estoqueCalcados, itens_contados_calcados: itensContadosCalcados,
+        itens_estoque_vestuario: estoqueVestuario, itens_contados_vestuario: itensContadosVestuario,
+        enderecos_em_estoque: enderecosEmEstoqueTotal, enderecos_contados: enderecosContadosTotal, enderecos_pendentes: enderecosPendentesTotal,
+        acuracidade_estoque: acuracidadeEstoque, balanco_itens: balancoItens, balanco_valor: balancoValor,
+        total_ganhos: totalGanhosItens, total_perdas: totalPerdasItens, valor_ganhos: valorGanhos, valor_perdas: valorPerdas,
+        dias_trabalhados: diasTrabalhados, media_bipes_dia: mediaBipesDia, media_pecas_dia: mediaPecasDia,
+        curva_real: curvaReal, curva_estipulada: curvaEstipulada,
+        novo_prazo: novoPrazo ? novoPrazo.toISOString().slice(0,10) : null,
+        dias_atraso_projetado: diasAtrasoProjetado, status_prazo: statusPrazo,
+        meta_dia_config: { A: metaA, B: metaB, C: metaC, D: metaD, resultado: metaDia }
+      },
+      diario: ciclosDiario,
+      ganhosPerdas: ganhosPerdasDetalhe.map(g=>({
+        ciclo_id: cicloId,
+        regiao: (enderecosUnicos.get(g.local)?.regiao || '') + (enderecosUnicos.get(g.local)?.bloco ? ' - Bloco ' + enderecosUnicos.get(g.local).bloco : ''),
+        codigo_produto: g.codigo, nome_produto: g.produto, variacao: g.variacao,
+        diferenca: g.diferenca, valor_diferenca: g.valorVariacao
+      })),
+      regiaoBloco: regiaoBlocoDetalhe.map(r=>({ ciclo_id: cicloId, piso:null, ...r }))
+    };
+
+    log('✔ Processamento concluído. Confira o resumo abaixo antes de enviar.', 'ok');
+    mostrarResumo(state.resultado.resumo);
+    document.getElementById('btnEnviar').disabled = false;
+
+  }catch(err){
+    log('✖ Erro: ' + err.message, 'err');
+    console.error(err);
+  }
+}
+
+function mostrarResumo(r){
+  const tbody = document.querySelector('#tblResumo tbody');
+  const linhas = [
+    ['Itens em Estoque', r.itens_em_estoque],
+    ['Itens Contados', r.itens_contados],
+    ['Itens Pendentes', r.itens_pendentes],
+    ['Itens Contados Calçados', r.itens_contados_calcados],
+    ['Itens Contados Vestuário', r.itens_contados_vestuario],
+    ['Endereços em Estoque', r.enderecos_em_estoque],
+    ['Endereços Contados', r.enderecos_contados],
+    ['Endereços Pendentes', r.enderecos_pendentes],
+    ['Acuracidade de Estoque', (r.acuracidade_estoque*100).toFixed(2) + '%'],
+    ['Balanço em Itens', r.balanco_itens],
+    ['Balanço em Valor', 'R$ ' + r.balanco_valor.toLocaleString('pt-BR', {minimumFractionDigits:2})],
+    ['Dias Trabalhados', r.dias_trabalhados],
+    ['Curva Real', r.curva_real.toFixed(4)],
+    ['Meta Dia', r.meta_dia_config.resultado.toLocaleString('pt-BR')],
+    ['Novo Prazo', r.novo_prazo],
+    ['Status Prazo', r.status_prazo],
+  ];
+  tbody.innerHTML = linhas.map(([k,v])=>`<tr><td>${k}</td><td>${v}</td></tr>`).join('');
+  document.getElementById('cardResumo').style.display = 'block';
+}
+
+/* ================= LOGIN ================= */
+document.getElementById('btnLogin').addEventListener('click', fazerLogin);
+async function fazerLogin(){
+  const email = document.getElementById('loginEmail').value.trim();
+  const senha = document.getElementById('loginSenha').value;
+  const statusEl = document.getElementById('loginStatus');
+  if(!email || !senha){ statusEl.textContent = 'Preencha e-mail e senha.'; return; }
+  statusEl.textContent = 'Entrando...';
+  try{
+    const res = await fetch(SUPABASE_URL + '/auth/v1/token?grant_type=password', {
+      method: 'POST',
+      headers: { 'apikey': SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password: senha })
+    });
+    const data = await res.json();
+    if(!res.ok){ throw new Error(data.error_description || data.msg || 'Falha no login'); }
+    sessionAccessToken = data.access_token;
+    statusEl.textContent = '✔ Conectado como ' + email;
+    statusEl.style.color = 'var(--positive)';
+    document.getElementById('cardLogin').style.opacity = '.6';
+  }catch(err){
+    statusEl.textContent = '✖ ' + err.message;
+    statusEl.style.color = 'var(--negative)';
+  }
+}
+
+/* ================= SUCESSO / REDIRECIONAMENTO ================= */
+let redirectTimeoutId = null;
+function irParaVisaoGeral(){
+  if(redirectTimeoutId) clearTimeout(redirectTimeoutId);
+  document.querySelector('.tab[data-page="visao-geral"]').click();
+  inicializarDashboard(); // recarrega KPIs, donuts e gráfico com o ciclo recém-publicado
+}
+function mostrarBotaoDashboard(){
+  document.getElementById('successBox').style.display = 'flex';
+  document.getElementById('btnIrDashboard').onclick = irParaVisaoGeral;
+  document.getElementById('btnCancelarRedirect').onclick = () => {
+    if(redirectTimeoutId) clearTimeout(redirectTimeoutId);
+    log('Redirecionamento automático cancelado.', 'warn');
+  };
+}
+async function supabaseRequest(path, method, body, extraHeaders){
+  if(!sessionAccessToken){ throw new Error('Faça login antes de enviar (seção 0).'); }
+  const res = await fetch(SUPABASE_URL + '/rest/v1/' + path, {
+    method,
+    headers: Object.assign({
+      'apikey': SUPABASE_ANON_KEY,
+      'Authorization': 'Bearer ' + sessionAccessToken,
+      'Content-Type': 'application/json'
+    }, extraHeaders || {}),
+    body: body ? JSON.stringify(body) : undefined
+  });
+  if(!res.ok){
+    const txt = await res.text();
+    throw new Error(method + ' ' + path + ' → ' + res.status + ': ' + txt);
+  }
+  return res;
+}
+
+async function enviarSupabase(){
+  if(!state.resultado) return;
+  document.getElementById('btnEnviar').disabled = true;
+  const cicloId = state.resultado.resumo.ciclo_id;
+
+  try{
+    log('Enviando ciclos_resumo (upsert)...');
+    await supabaseRequest('ciclos_resumo', 'POST', state.resultado.resumo, { 'Prefer':'resolution=merge-duplicates' });
+    log('✔ ciclos_resumo OK', 'ok');
+
+    log('Enviando ciclos_diario (upsert)...');
+    const anoCiclo = document.getElementById('cfgAnoCiclo').value;
+    const diarioComCiclo = state.resultado.diario.map(d=>{
+      const [dia, mes] = d.data.split('/');
+      const dataISO = anoCiclo + '-' + mes + '-' + dia;
+      return { ciclo_id: cicloId, ...d, data: dataISO };
+    });
+    if(diarioComCiclo.length){
+      await supabaseRequest('ciclos_diario?on_conflict=ciclo_id,data', 'POST', diarioComCiclo, { 'Prefer':'resolution=merge-duplicates' });
+    }
+    log('✔ ciclos_diario OK (' + diarioComCiclo.length + ' dias)', 'ok');
+
+    log('Limpando ganhos_perdas_detalhe antigo deste ciclo...');
+    await supabaseRequest('ganhos_perdas_detalhe?ciclo_id=eq.' + encodeURIComponent(cicloId), 'DELETE');
+    log('Enviando ganhos_perdas_detalhe...');
+    if(state.resultado.ganhosPerdas.length){
+      // envia em lotes de 500 para não estourar o payload
+      for(let i=0;i<state.resultado.ganhosPerdas.length;i+=500){
+        await supabaseRequest('ganhos_perdas_detalhe', 'POST', state.resultado.ganhosPerdas.slice(i,i+500));
+      }
+    }
+    log('✔ ganhos_perdas_detalhe OK (' + state.resultado.ganhosPerdas.length + ' linhas)', 'ok');
+
+    log('Limpando regiao_bloco_detalhe antigo deste ciclo...');
+    await supabaseRequest('regiao_bloco_detalhe?ciclo_id=eq.' + encodeURIComponent(cicloId), 'DELETE');
+    log('Enviando regiao_bloco_detalhe...');
+    if(state.resultado.regiaoBloco.length){
+      await supabaseRequest('regiao_bloco_detalhe', 'POST', state.resultado.regiaoBloco);
+    }
+    log('✔ regiao_bloco_detalhe OK (' + state.resultado.regiaoBloco.length + ' linhas)', 'ok');
+
+    log('🎉 Ciclo ' + cicloId + ' publicado com sucesso no Supabase!', 'ok');
+    log('Indo para a Visão Geral em 3 segundos...', 'ok');
+    mostrarBotaoDashboard();
+    redirectTimeoutId = setTimeout(irParaVisaoGeral, 3000);
+
+  }catch(err){
+    log('✖ Erro no envio: ' + err.message, 'err');
+    console.error(err);
+    document.getElementById('btnEnviar').disabled = false;
   }
 }
 
