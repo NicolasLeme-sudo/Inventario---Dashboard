@@ -293,9 +293,57 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
   z-index:200; pointer-events:none; line-height:1.7; max-width:220px;
 }
 .chart-tooltip b{color:var(--accent-gold);}
+
+/* ===== Tela de acesso (bloqueia o dashboard inteiro até autenticar) ===== */
+#authGate{
+  position:fixed; inset:0; z-index:9999; display:flex; align-items:center; justify-content:center;
+  background:var(--bg-deep); padding:20px;
+}
+#authGate .auth-card{
+  width:100%; max-width:380px; background:var(--card-bg); border:1px solid var(--card-border);
+  border-radius:12px; padding:32px 28px; box-shadow:0 18px 44px rgba(0,0,0,.42);
+}
+#authGate .auth-logo{display:flex; justify-content:center; margin-bottom:18px;}
+#authGate .auth-logo img{height:44px;}
+#authGate h2{font-size:17px; text-align:center; margin:0 0 4px; color:var(--text-primary);}
+#authGate .auth-sub{font-size:12px; text-align:center; color:var(--text-secondary); margin-bottom:22px;}
+#authGate label{display:block; font-size:11px; text-transform:uppercase; letter-spacing:.5px;
+  color:var(--text-secondary); margin-bottom:5px;}
+#authGate input{
+  width:100%; box-sizing:border-box; padding:11px 12px; margin-bottom:14px; font-size:14px;
+  border-radius:7px; border:1px solid var(--card-border); background:var(--bg-deep);
+  color:var(--text-primary); font-family:inherit;
+}
+#authGate input:focus{outline:none; border-color:var(--accent-gold);}
+#authGate button{
+  width:100%; padding:12px; border:none; border-radius:7px; cursor:pointer;
+  background:var(--accent-gold); color:#1A1500; font-size:14px; font-weight:700; font-family:inherit;
+}
+#authGate button:disabled{opacity:.6; cursor:default;}
+#authGate .auth-msg{font-size:12px; margin-top:14px; text-align:center; min-height:16px;}
+.btn-sair{
+  background:transparent; border:1px solid rgba(255,255,255,.28); color:#fff;
+  border-radius:20px; padding:7px 14px; font-size:12px; cursor:pointer; font-family:inherit;
+}
 </style>
 </head>
 <body>
+
+<div id="authGate">
+  <div class="auth-card">
+    <div class="auth-logo"><img id="authLogo" src="" alt="Vulcabras"></div>
+    <h2>Inventário E-commerce</h2>
+    <div class="auth-sub">Acesso restrito — entre para visualizar o painel.</div>
+    <form id="authForm" autocomplete="on">
+      <label for="authEmail">E-mail</label>
+      <input type="email" id="authEmail" autocomplete="username" required>
+      <label for="authSenha">Senha</label>
+      <input type="password" id="authSenha" autocomplete="current-password" required>
+      <button type="submit" id="authBtn">Entrar</button>
+    </form>
+    <div class="auth-msg" id="authMsg"></div>
+  </div>
+</div>
 
 <div class="topbar">
   <div class="topbar-row">
@@ -303,10 +351,11 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
       <img id="headerLogo" src="" alt="Vulcabras">
       <div class="header-titles">
         <h1>Inventário E-commerce</h1>
-        <div class="meta">Ciclo 34/2026 · 866.209 itens na foto de estoque · gerado em 19/08/2026 09:20</div>
+        <div class="meta">Carregando ciclo...</div>
       </div>
     </div>
     <div class="header-right">
+      <button class="btn-sair" onclick="sair()" title="Encerrar sessão">Sair</button>
       <div class="theme-toggle" onclick="toggleTheme()">
         <span id="toggleIcon">🌙</span>
         <span id="toggleLabel">Tema Escuro</span>
@@ -352,7 +401,7 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
 <div class="filterbar" id="filterbar-regiao" style="display:none;">
   <div class="filter-field">
     <label>Bloco</label>
-    <select id="filtro-bloco" onchange="filtrarRegiao()"><option value="">Todos</option><option>A</option><option>B</option><option>C</option><option>E</option><option>F</option><option>G</option></select>
+    <select id="filtro-bloco" onchange="filtrarRegiao()"><option value="">Todos</option></select>
   </div>
   <div class="filter-field">
     <label>Setor</label>
@@ -509,7 +558,7 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
     <div class="subtitle">Abastece a base do ciclo atual e publica no Supabase. Acesso liberado pelo link — ao concluir, o dashboard (aba Visão Geral) é atualizado na hora, sem precisar recarregar a página.</div>
 
     <div class="warn-box">
-      <strong>⚠️ Duas fórmulas foram inferidas, não confirmadas no Power BI:</strong> as colunas <code>Variação</code> (Ganho/Perda) e <code>Valor_Variação</code> não existem nos arquivos brutos — presumi <code>Variação = Diferença &gt; 0 ? "Ganho" : Diferença &lt; 0 ? "Perda" : "Saldo OK"</code> e <code>Valor_Variação = Diferença × Valor Unitário</code>. Confira essas duas contra o Power Query assim que possível.
+      <strong>⚠️ Uma fórmula foi inferida, não confirmada no Power BI:</strong> a coluna <code>Variação</code> não existe nos arquivos brutos — presumi <code>Variação = Diferença &gt; 0 ? "Ganho" : Diferença &lt; 0 ? "Perda" : "Saldo OK"</code>. O <code>Valor_Variação</code> é <code>Diferença × Custo</code>, com o custo vindo da Base_Custo por SKU.
     </div>
 
     <div class="card">
@@ -900,7 +949,6 @@ function renderKpis(){
 
 /* ================= GRÁFICO REALIZADO X META X CURVA (dados reais) ================= */
 let semanasChart = {}; // preenchido via Supabase: { ciclo_id: { dias, meta, real, curva, semanaAno } }
-let cicloSelecionado = null;
 
 // Catmull-Rom -> Bezier, gera path suavizado a partir de uma lista de pontos [x,y]
 function smoothPath(points){
@@ -930,19 +978,41 @@ function renderChart(){
   // filtro de período (De/Até) — aplicado sobre as datas ISO reais, não sobre o rótulo dd/mm
   const dataIni = document.getElementById('filtro-data-inicio').value;
   const dataFim = document.getElementById('filtro-data-fim').value;
-  let idxsFiltrados = sRaw.diasISO.map((_, i) => i);
-  if(dataIni) idxsFiltrados = idxsFiltrados.filter(i => sRaw.diasISO[i] >= dataIni);
-  if(dataFim) idxsFiltrados = idxsFiltrados.filter(i => sRaw.diasISO[i] <= dataFim);
+
+  // data ISO -> índice do registro que veio do banco
+  const porData = {};
+  sRaw.diasISO.forEach((iso, i) => { porData[iso] = i; });
+  const isoOrdenados = sRaw.diasISO.slice().sort();
+  const isoInicio = dataIni || isoOrdenados[0];
+  const isoFim    = dataFim || isoOrdenados[isoOrdenados.length - 1];
+
+  // Eixo X contínuo: TODOS os dias do intervalo entram, inclusive sábado, domingo e dias
+  // sem contagem (esses aparecem zerados). Assim a leitura do ritmo não "pula" datas.
+  const isoLocal = d => d.getFullYear() + '-' +
+    String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
   const s = {
-    dias: idxsFiltrados.map(i => sRaw.dias[i]),
-    diasISO: idxsFiltrados.map(i => sRaw.diasISO[i]),
-    meta: idxsFiltrados.map(i => sRaw.meta[i]),
-    real: idxsFiltrados.map(i => sRaw.real[i]),
-    curva: idxsFiltrados.map(i => sRaw.curva[i]),
-    setor: idxsFiltrados.map(i => sRaw.setor[i]),
-    headcount: idxsFiltrados.map(i => sRaw.headcount[i]),
+    dias: [], diasISO: [], meta: [], real: [], curva: [],
+    setor: [], headcount: [], semRegistro: [],
     curvaEstipulada: sRaw.curvaEstipulada
   };
+  if(isoInicio && isoFim && isoInicio <= isoFim){
+    const cursor = new Date(isoInicio + 'T00:00:00');
+    const limite = new Date(isoFim + 'T00:00:00');
+    while(cursor <= limite){
+      const iso = isoLocal(cursor);
+      const i = porData[iso];
+      const tem = i !== undefined;
+      s.diasISO.push(iso);
+      s.dias.push(fmtDDMM(cursor));
+      s.meta.push(tem ? sRaw.meta[i] : 0);
+      s.real.push(tem ? sRaw.real[i] : 0);
+      s.curva.push(tem ? sRaw.curva[i] : 0);
+      s.setor.push(tem ? sRaw.setor[i] : null);
+      s.headcount.push(tem ? sRaw.headcount[i] : null);
+      s.semRegistro.push(!tem);
+      cursor.setDate(cursor.getDate() + 1);
+    }
+  }
   chartDiasAtual = s; // exposto pro tooltip de clique
   if(!s.dias.length){
     document.getElementById('chart-svg-wrap').innerHTML = '<div class="hint" style="padding:40px; text-align:center;">Nenhum dia no período selecionado.</div>';
@@ -954,10 +1024,12 @@ function renderChart(){
   // sobrepor barras/rótulos — com muitos dias o gráfico cresce e rola na horizontal
   // em vez de espremer tudo num viewBox fixo de 900px.
   const wrap = document.getElementById('chart-svg-wrap');
-  const MIN_GROUP_W = 100;
-  const groupW = Math.max((wrap.clientWidth || 900) / n, MIN_GROUP_W);
+  const DIAS_VISIVEIS = 7;   // acima disso o gráfico passa a rolar na horizontal
+  const MIN_GROUP_W = 150;
+  const larguraUtil = wrap.clientWidth || 900;
+  const groupW = Math.max(larguraUtil / Math.min(n, DIAS_VISIVEIS), MIN_GROUP_W);
   const totalWidth = groupW * n;
-  const barW = 40;
+  const barW = 56;
   const baseline = 280;
   // Meta e Realizado compartilham a mesma escala, então a comparação visual entre as duas
   // barras é honesta mesmo com a Meta Dia variando de um dia pro outro.
@@ -978,6 +1050,11 @@ function renderChart(){
     const metaTop = baseline - metaH;
 
     metaBars += `<rect x="${gx}" y="0" width="${barW*2+6}" height="${baseline}" fill="transparent" style="cursor:pointer;" onclick="mostrarTooltipDia(event, ${i})"></rect>`;
+
+    // Dia sem contagem (fim de semana, feriado, parada): entra no eixo para não pular a data,
+    // mas sem barras/rótulos/ponto de curva — senão a curva despencaria pra zero sem motivo.
+    if(s.semRegistro[i]) continue;
+
     metaBars += `<rect x="${metaX}" y="${metaTop}" width="${barW}" height="${metaH}" rx="3" fill="var(--meta-bar)" style="pointer-events:none;"></rect>`;
     realBars += `<rect x="${realX}" y="${realTop}" width="${barW}" height="${realH}" rx="3" fill="var(--accent-gold)" style="pointer-events:none;"></rect>`;
 
@@ -987,12 +1064,12 @@ function renderChart(){
     // ponto da curva — escala própria (razão), não percentual
     const py = baseline - (s.curva[i]/maxCurva) * (baseline-40);
     const px = gx + barW + 3;
-    pontos.push([px, py]);
+    pontos.push([px, py, i]);
   }
 
   let curvaLabels = '';
-  pontos.forEach((p,i)=>{
-    curvaLabels += dataLabel(p[0], p[1]-16, s.curva[i].toFixed(2), 'var(--curva-label-bg)', 'var(--curva-label-text)');
+  pontos.forEach(p=>{
+    curvaLabels += dataLabel(p[0], p[1]-16, s.curva[p[2]].toFixed(2), 'var(--curva-label-bg)', 'var(--curva-label-text)');
   });
 
   const linePath = smoothPath(pontos);
@@ -1028,6 +1105,15 @@ let chartDiasAtual = null; // último "s" (já filtrado) renderizado — usado p
 function mostrarTooltipDia(evt, i){
   if(!chartDiasAtual) return;
   const s = chartDiasAtual;
+  if(s.semRegistro && s.semRegistro[i]){
+    const tt0 = document.getElementById('chartTooltip');
+    tt0.innerHTML = `<div><b>${s.dias[i]}</b></div><div>Sem contagem registrada neste dia.</div>`;
+    tt0.style.left = (evt.clientX + 14) + 'px';
+    tt0.style.top = (evt.clientY + 14) + 'px';
+    tt0.style.display = 'block';
+    evt.stopPropagation();
+    return;
+  }
   const setor = s.setor[i] || '—';
   const headcount = s.headcount[i];
   const headcountTxt = (headcount === null || headcount === undefined) ? 'não registrado (usa padrão)' : headcount + ' pessoas';
@@ -1103,7 +1189,10 @@ function exportarCSV(){
   const blob = new Blob(["\uFEFF" + lines.join('\n')], {type:'text/csv;charset=utf-8;'});
   const link = document.createElement('a');
   link.href = URL.createObjectURL(blob);
-  link.download = 'ganhos_perdas_ciclo34.csv';
+  const sufixo = filtroVariacao === 'todos' ? 'todos'
+    : filtroVariacao === 'ganho' ? 'ganhos'
+    : filtroVariacao === 'perda' ? 'perdas' : 'saldo-ok';
+  link.download = 'ganhos_perdas_' + (cicloAtualId || 'ciclo') + '_' + sufixo + '.csv';
   link.click();
 }
 
@@ -1117,6 +1206,15 @@ let dadosBloco = [
   { piso:"Piso 1", bloco:"G", setor:"Vestuário", estoque:0,      inventario:0 },
 ];
 
+// Preenche o dropdown de bloco com os blocos que existem de fato no ciclo carregado,
+// em vez de uma lista fixa A-G que pode não bater com o estoque atual.
+function popularFiltroBloco(){
+  const sel = document.getElementById('filtro-bloco');
+  const atual = sel.value;
+  const blocos = [...new Set(dadosBloco.map(r => r.bloco).filter(Boolean))].sort();
+  sel.innerHTML = '<option value="">Todos</option>' + blocos.map(b => `<option>${b}</option>`).join('');
+  if(blocos.includes(atual)) sel.value = atual;
+}
 function filtrarRegiao(){
   const bloco = document.getElementById('filtro-bloco').value;
   const setor = document.getElementById('filtro-setor').value;
@@ -1159,10 +1257,63 @@ function filtrarRegiao(){
 const SUPABASE_URL = "https://juoibcncsehzdelkhcnk.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_frMEN6sGj931yDY-QTZAEA_FNKTePt-";
 
+/* ================= SESSÃO (acesso só autenticado) =================
+   As políticas do Supabase exigem usuário autenticado até para LER, então sem sessão
+   válida a API não devolve nada — a tela de acesso não é só cosmética. */
+const SESSAO_KEY = 'inventario_sessao';
+let sessao = null; // { access_token, refresh_token, expira_em }
+
+function salvarSessao(dados){
+  sessao = {
+    access_token: dados.access_token,
+    refresh_token: dados.refresh_token,
+    expira_em: Date.now() + ((dados.expires_in || 3600) * 1000)
+  };
+  try{ localStorage.setItem(SESSAO_KEY, JSON.stringify(sessao)); }catch(e){}
+}
+function carregarSessaoSalva(){
+  try{
+    const bruto = localStorage.getItem(SESSAO_KEY);
+    if(bruto) sessao = JSON.parse(bruto);
+  }catch(e){ sessao = null; }
+}
+function limparSessao(){
+  sessao = null;
+  try{ localStorage.removeItem(SESSAO_KEY); }catch(e){}
+}
+async function renovarSessao(){
+  if(!sessao || !sessao.refresh_token) return false;
+  try{
+    const res = await fetch(SUPABASE_URL + '/auth/v1/token?grant_type=refresh_token', {
+      method: 'POST',
+      headers: { 'apikey': SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: sessao.refresh_token })
+    });
+    if(!res.ok) return false;
+    salvarSessao(await res.json());
+    return true;
+  }catch(e){ return false; }
+}
+// Renova o token de forma preventiva quando falta menos de 1 min para expirar.
+async function tokenValido(){
+  if(!sessao) return null;
+  if(Date.now() > sessao.expira_em - 60000){
+    if(!(await renovarSessao())) return null;
+  }
+  return sessao.access_token;
+}
+async function authHeaders(extra){
+  const token = await tokenValido();
+  if(!token) throw new Error('Sessão expirada — entre novamente.');
+  return Object.assign({
+    'apikey': SUPABASE_ANON_KEY,
+    'Authorization': 'Bearer ' + token
+  }, extra || {});
+}
+
 async function sb(path){
-  const res = await fetch(SUPABASE_URL + '/rest/v1/' + path, {
-    headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + SUPABASE_ANON_KEY }
-  });
+  const res = await fetch(SUPABASE_URL + '/rest/v1/' + path, { headers: await authHeaders() });
+  if(res.status === 401){ exigirLogin('Sessão expirada — entre novamente.'); throw new Error('Sessão expirada'); }
   if(!res.ok) throw new Error('Falha ao consultar ' + path + ' (' + res.status + ')');
   return res.json();
 }
@@ -1174,13 +1325,9 @@ async function sbAll(path){
   let todos = [];
   while(true){
     const res = await fetch(SUPABASE_URL + '/rest/v1/' + path, {
-      headers: {
-        'apikey': SUPABASE_ANON_KEY,
-        'Authorization': 'Bearer ' + SUPABASE_ANON_KEY,
-        'Range-Unit': 'items',
-        'Range': offset + '-' + (offset + PAGE - 1)
-      }
+      headers: await authHeaders({ 'Range-Unit': 'items', 'Range': offset + '-' + (offset + PAGE - 1) })
     });
+    if(res.status === 401){ exigirLogin('Sessão expirada — entre novamente.'); throw new Error('Sessão expirada'); }
     if(!res.ok) throw new Error('Falha ao consultar ' + path + ' (' + res.status + ')');
     const pagina = await res.json();
     todos = todos.concat(pagina);
@@ -1284,6 +1431,7 @@ async function carregarCiclo(cicloId){
   }));
 
   renderGanhosPerdas();
+  popularFiltroBloco();
   filtrarRegiao();
 }
 
@@ -1920,10 +2068,7 @@ function mostrarBotaoDashboard(){
 async function supabaseRequest(path, method, body, extraHeaders){
   const res = await fetch(SUPABASE_URL + '/rest/v1/' + path, {
     method,
-    headers: Object.assign({
-      'apikey': SUPABASE_ANON_KEY,
-      'Content-Type': 'application/json'
-    }, extraHeaders || {}),
+    headers: await authHeaders(Object.assign({ 'Content-Type': 'application/json' }, extraHeaders || {})),
     body: body ? JSON.stringify(body) : undefined
   });
   if(!res.ok){
@@ -2003,13 +2148,75 @@ async function enviarSupabase(){
   }
 }
 
+/* ================= TELA DE ACESSO ================= */
+function exigirLogin(msg){
+  limparSessao();
+  document.getElementById('authGate').style.display = 'flex';
+  document.getElementById('authBtn').disabled = false;
+  document.getElementById('authBtn').textContent = 'Entrar';
+  const el = document.getElementById('authMsg');
+  el.textContent = msg || '';
+  el.style.color = 'var(--negative)';
+}
+function sair(){
+  exigirLogin('Sessão encerrada.');
+  document.getElementById('authMsg').style.color = 'var(--text-secondary)';
+}
+async function entrar(evt){
+  if(evt) evt.preventDefault();
+  const email = document.getElementById('authEmail').value.trim();
+  const senha = document.getElementById('authSenha').value;
+  const btn = document.getElementById('authBtn');
+  const msg = document.getElementById('authMsg');
+  if(!email || !senha){ msg.textContent = 'Preencha e-mail e senha.'; msg.style.color = 'var(--negative)'; return; }
+  btn.disabled = true; btn.textContent = 'Entrando...';
+  msg.style.color = 'var(--text-secondary)'; msg.textContent = 'Verificando...';
+  try{
+    const res = await fetch(SUPABASE_URL + '/auth/v1/token?grant_type=password', {
+      method: 'POST',
+      headers: { 'apikey': SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password: senha })
+    });
+    const dados = await res.json();
+    if(!res.ok) throw new Error(dados.error_description || dados.msg || 'E-mail ou senha inválidos.');
+    salvarSessao(dados);
+    document.getElementById('authSenha').value = '';
+    msg.textContent = '';
+    document.getElementById('authGate').style.display = 'none';
+    await iniciarApp();
+  }catch(err){
+    msg.textContent = err.message;
+    msg.style.color = 'var(--negative)';
+  }finally{
+    btn.disabled = false; btn.textContent = 'Entrar';
+  }
+}
+document.getElementById('authForm').addEventListener('submit', entrar);
+
 /* ================= INIT ================= */
 applyLogo();
+document.getElementById('authLogo').src = LOGO_DATA.favicon;
 document.getElementById('faviconLink').href = LOGO_DATA.favicon;
-aplicarCicloAuto();
-calcularMetaDia();
-carregarLogAbastecimento();
-inicializarDashboard();
+
+async function iniciarApp(){
+  aplicarCicloAuto();
+  calcularMetaDia();
+  await carregarLogAbastecimento();
+  await inicializarDashboard();
+}
+
+// Sessão guardada no navegador: se ainda for válida (ou der pra renovar), entra direto.
+(async () => {
+  carregarSessaoSalva();
+  if(await tokenValido()){
+    document.getElementById('authGate').style.display = 'none';
+    try{ await iniciarApp(); }
+    catch(e){ exigirLogin('Não foi possível carregar os dados — entre novamente.'); }
+  }else{
+    exigirLogin('');
+    document.getElementById('authMsg').textContent = '';
+  }
+})();
 // recalcula a largura por dia do gráfico quando a janela muda de tamanho
 let resizeTimer = null;
 window.addEventListener('resize', () => {
