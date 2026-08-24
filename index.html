@@ -437,7 +437,10 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
     </section>
 
     <section>
-      <div class="section-title">Indicadores Gerais — Endereços</div>
+      <div class="section-title" style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+        <span>Indicadores Gerais — Endereços</span>
+        <button class="btn secondary" id="btnEndPendentesGeral" style="display:none; text-transform:none; letter-spacing:normal;" onclick="exportarEnderecosPendentesGeral()">⬇ Endereços pendentes</button>
+      </div>
       <div class="kpi-row" id="kpi-row-enderecos"></div>
     </section>
 
@@ -1784,12 +1787,61 @@ async function inicializarDashboard(){
     montarDadosGeral(cicloAtualResumo);
     renderKpis();
     preencherCamposDoCiclo(cicloAtualResumo);
+    atualizarEnderecosPendentesGeral();
 
     await carregarCiclo(cicloAtualId);
   }catch(err){
     console.error(err);
     document.querySelector('.header-titles .meta').textContent = 'Erro ao carregar dados do Supabase: ' + err.message;
   }
+}
+
+/* ================= ENDEREÇOS PENDENTES (Visão Geral) =================
+   Mesma lógica da aba Atualizar Inventário, mas lendo direto do Supabase (base_enderecos +
+   enderecos_contados_ciclo) — assim funciona em qualquer navegador, sem precisar reprocessar
+   nada localmente para ver quais endereços ainda faltam contar no ciclo atual. */
+let enderecosPendentesGeral = [];
+async function atualizarEnderecosPendentesGeral(){
+  const btn = document.getElementById('btnEndPendentesGeral');
+  if(!cicloAtualId){ btn.style.display = 'none'; return; }
+  try{
+    const [base, contados] = await Promise.all([
+      sbAll('base_enderecos?select=local,bloco,setor,regiao'),
+      sbAll('enderecos_contados_ciclo?ciclo_id=eq.' + encodeURIComponent(cicloAtualId) + '&select=local')
+    ]);
+    const contadosSet = new Set(contados.map(r => r.local));
+    enderecosPendentesGeral = base.filter(e => !contadosSet.has(e.local));
+    if(!base.length){
+      btn.style.display = 'none';
+      return;
+    }
+    btn.style.display = 'inline-block';
+    btn.textContent = '⬇ Endereços pendentes (' + enderecosPendentesGeral.length.toLocaleString('pt-BR') + ')';
+  }catch(e){
+    console.warn('Não foi possível calcular endereços pendentes:', e);
+    btn.style.display = 'none';
+  }
+}
+function exportarEnderecosPendentesGeral(){
+  if(!enderecosPendentesGeral.length){ alert('Nenhum endereço pendente neste ciclo.'); return; }
+  const header = ['Local','Bloco','Setor','Região'];
+  const limpa = v => (v === null || v === undefined) ? '' : String(v).replace(/[;\r\n]/g, ' ');
+  const lines = [header.join(';')];
+  enderecosPendentesGeral.forEach(e => {
+    lines.push([e.local, e.bloco, e.setor, e.regiao].map(limpa).join(';'));
+  });
+  const blob = new Blob(["﻿" + lines.join('\n')], {type:'text/csv;charset=utf-8;'});
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = 'enderecos_pendentes_' + (cicloAtualId || 'ciclo') + '.csv';
+  link.click();
+
+  const porBloco = {};
+  enderecosPendentesGeral.forEach(e => {
+    const k = (e.setor || '?') + ' · Bloco ' + (e.bloco || '?');
+    porBloco[k] = (porBloco[k] || 0) + 1;
+  });
+  console.log('Endereços pendentes por bloco:', porBloco);
 }
 
 /* ================= REIDRATA A ABA DE ABASTECIMENTO ================= */
@@ -2639,7 +2691,12 @@ async function processar(){
       arquivosProcessadosAgora: [
         ...state.bipagensFiles.map(f => ({ ciclo_id: cicloId, tipo: 'bipagens', nome_arquivo: f.name })),
         ...state.diferencaFiles.map(f => ({ ciclo_id: cicloId, tipo: 'diferenca', nome_arquivo: f.name }))
-      ]
+      ],
+      // Publica a base de endereços inteira (não só os pendentes) para a Visão Geral
+      // conseguir calcular "Endereços Pendentes" sem depender do processamento local.
+      baseEnderecos: [...enderecosUnicos.entries()].map(([local, info]) => ({
+        local, bloco: info.bloco || null, setor: setorDoEndereco(info) || null, regiao: info.regiao || null
+      }))
     };
 
     const btnPend = document.getElementById('btnEndPendentes');
@@ -2792,6 +2849,17 @@ async function enviarSupabase(){
           state.resultado.enderecosNovosContados.slice(i,i+500), { 'Prefer':'resolution=ignore-duplicates' });
       }
       log('✔ enderecos_contados_ciclo OK', 'ok');
+    }
+
+    // base_enderecos: publica a base inteira (upsert por local) para a Visão Geral
+    // conseguir mostrar/exportar os endereços pendentes sem depender do navegador local.
+    if(state.resultado.baseEnderecos.length){
+      log('Enviando base_enderecos (' + state.resultado.baseEnderecos.length.toLocaleString('pt-BR') + ' endereços)...');
+      for(let i=0;i<state.resultado.baseEnderecos.length;i+=500){
+        await supabaseRequest('base_enderecos?on_conflict=local', 'POST',
+          state.resultado.baseEnderecos.slice(i,i+500), { 'Prefer':'resolution=merge-duplicates' });
+      }
+      log('✔ base_enderecos OK', 'ok');
     }
 
     // arquivos_processados: trava contra reenvio acidental do mesmo arquivo no próximo ciclo.
