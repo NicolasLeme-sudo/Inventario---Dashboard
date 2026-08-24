@@ -236,7 +236,9 @@ tbody tr.pendente td{color:var(--text-secondary); font-style:italic;}
 .prazo-metric .lbl{font-size:12px; color:var(--text-secondary);}
 .prazo-metric .val{font-size:14px; font-weight:700; color:var(--text-primary); text-align:right;}
 .prazo-metric .val.destaque{font-size:17px; color:var(--accent-gold);}
-.prazo-janela{display:flex; align-items:center; gap:8px;}
+.prazo-janela{display:flex; align-items:center; gap:8px; flex-wrap:wrap;}
+.prazo-janela select{padding:6px 8px; border-radius:6px; border:1px solid var(--card-border); background:var(--bg-deep); color:var(--text-primary); font-family:inherit; font-size:13px;}
+.prazo-janela input[type=date]{width:140px;}
 .prazo-janela input{width:56px; text-align:center; padding:6px 4px; border-radius:6px; border:1px solid var(--card-border); background:var(--bg-deep); color:var(--text-primary); font-family:inherit; font-size:13px;}
 @media (max-width: 1100px){ .prazo-row{grid-template-columns:1fr;} }
 
@@ -445,9 +447,19 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
         <span class="hint">projeta o novo prazo com base no ritmo recente — não afeta o gráfico Realizado x Meta x Curva</span>
       </div>
       <div class="prazo-janela" style="margin-bottom:14px;">
-        <label class="hint" for="prazoJanelaDias">Considerar os últimos</label>
-        <input type="number" id="prazoJanelaDias" min="1" max="180" value="14">
-        <label class="hint">dias trabalhados na média de ritmo</label>
+        <label class="hint" for="prazoModo">Ritmo médio calculado</label>
+        <select id="prazoModo">
+          <option value="dias">nos últimos</option>
+          <option value="data">desde uma data</option>
+        </select>
+        <span id="prazoModoDias" style="display:flex; align-items:center; gap:8px;">
+          <input type="number" id="prazoJanelaDias" min="1" max="180" value="14">
+          <label class="hint">dias trabalhados</label>
+        </span>
+        <span id="prazoModoData" style="display:none; align-items:center; gap:8px;">
+          <input type="date" id="prazoJanelaData">
+          <label class="hint">(inclusive)</label>
+        </span>
       </div>
       <div class="prazo-row" id="prazoRow"></div>
     </section>
@@ -998,17 +1010,36 @@ function renderKpis(){
    Não usa o filtro de período do gráfico — sempre olha a série completa do ciclo e recorta
    sozinha a janela de dias escolhida, contados a partir do dia trabalhado mais recente. */
 const PREF_JANELA_PRAZO = 'inventario_prazo_janela_dias';
+const PREF_JANELA_MODO = 'inventario_prazo_janela_modo';
+const PREF_JANELA_DATA = 'inventario_prazo_janela_data';
 function lerJanelaPrazo(){
   let v = 14;
   try{ const s = parseInt(localStorage.getItem(PREF_JANELA_PRAZO), 10); if(s > 0) v = s; }catch(e){}
   return v;
 }
 function salvarJanelaPrazo(v){ try{ localStorage.setItem(PREF_JANELA_PRAZO, v); }catch(e){} }
+function lerModoJanela(){
+  try{ if(localStorage.getItem(PREF_JANELA_MODO) === 'data') return 'data'; }catch(e){}
+  return 'dias';
+}
+function salvarModoJanela(m){ try{ localStorage.setItem(PREF_JANELA_MODO, m); }catch(e){} }
+function lerDataJanela(){
+  try{ return localStorage.getItem(PREF_JANELA_DATA) || ''; }catch(e){ return ''; }
+}
+function salvarDataJanela(d){ try{ localStorage.setItem(PREF_JANELA_DATA, d); }catch(e){} }
 
+// Recorta a série de dias trabalhados para o cálculo de ritmo: modo "dias" pega os N últimos
+// dias trabalhados; modo "data" pega todos os dias trabalhados a partir da data escolhida
+// (inclusive) — evita ter que ficar contando manualmente quantos dias isso representa.
+function recortarJanela(entradas, modo, valor){
+  if(modo === 'data' && valor) return entradas.filter(e => e.iso >= valor);
+  const janela = Number(valor) > 0 ? Number(valor) : 14;
+  return entradas.slice(-janela);
+}
 // Média diária de itens contados dentro da janela — só considera dias com registro
 // (dias sem contagem, como fim de semana, simplesmente não têm linha em ciclos_diario).
-function ritmoMedio(entradas, janela){
-  const recorte = entradas.slice(-janela);
+function ritmoMedio(entradas, modo, valor){
+  const recorte = recortarJanela(entradas, modo, valor);
   if(!recorte.length) return null;
   const soma = recorte.reduce((t, e) => t + (e.real || 0), 0);
   return { media: soma / recorte.length, diasComDado: recorte.length };
@@ -1037,7 +1068,7 @@ function blocoPrazoHTML(titulo, dados){
     <div class="prazo-card">
       <div class="prazo-card-head"><h3>${titulo}</h3>${pill}</div>
       <div class="prazo-metric"><span class="lbl">Pendente</span><span class="val">${Math.round(dados.pendente).toLocaleString('pt-BR')} itens</span></div>
-      <div class="prazo-metric"><span class="lbl">Ritmo médio (últimos ${dados.diasComDado} dia(s) trabalhados)</span><span class="val">${Math.round(dados.media).toLocaleString('pt-BR')} itens/dia</span></div>
+      <div class="prazo-metric"><span class="lbl">Ritmo médio (${dados.diasComDado} dia(s) trabalhados considerados)</span><span class="val">${Math.round(dados.media).toLocaleString('pt-BR')} itens/dia</span></div>
       <div class="prazo-metric"><span class="lbl">Dias necessários</span><span class="val">${dados.diasNecessarios}</span></div>
       <div class="prazo-metric"><span class="lbl">Novo Prazo Projetado</span><span class="val destaque">${formatarDataBR(dados.novoPrazo)}</span></div>
       <div class="prazo-metric"><span class="lbl">Prazo Estipulado</span><span class="val">${dados.prazoEstipulado ? formatarDataBR(dados.prazoEstipulado) : '—'}</span></div>
@@ -1055,8 +1086,14 @@ function renderPrazo(){
   }
   const r = cicloAtualResumo;
   const s = semanasChart[cicloAtualId];
+  const modoJanela = lerModoJanela();
   const janela = lerJanelaPrazo();
+  const dataJanela = lerDataJanela();
+  document.getElementById('prazoModo').value = modoJanela;
   document.getElementById('prazoJanelaDias').value = janela;
+  document.getElementById('prazoJanelaData').value = dataJanela;
+  atualizarVisibilidadeModoJanela();
+  const valorJanela = modoJanela === 'data' ? dataJanela : janela;
 
   // série completa, em ordem cronológica (a fonte já vem ordenada por data.asc)
   const serie = s.diasISO.map((iso, i) => ({ iso, real: s.real[i], setor: s.setor[i] }));
@@ -1079,7 +1116,7 @@ function renderPrazo(){
     if(!nomeSetor || !(nomeSetor in PENDENTE_SETOR)) return { semRitmo: true };
     const pendente = PENDENTE_SETOR[nomeSetor];
     const entradasSetor = serie.filter(e => e.setor === nomeSetor);
-    const ritmo = ritmoMedio(entradasSetor, janela);
+    const ritmo = ritmoMedio(entradasSetor, modoJanela, valorJanela);
     if(pendente <= 0){
       return { concluido: true, pendente: 0, media: ritmo ? ritmo.media : 0, diasComDado: ritmo ? ritmo.diasComDado : 0,
         diasNecessarios: 0, novoPrazo: hoje, prazoEstipulado };
@@ -1143,10 +1180,24 @@ function renderPrazo(){
 
   wrap.innerHTML = blocoPrazoHTML(tituloAtual, projAtual) + blocoPrazoHTML('Geral (Calçados + Vestuário)', projGeral);
 }
+function atualizarVisibilidadeModoJanela(){
+  const modo = document.getElementById('prazoModo').value;
+  document.getElementById('prazoModoDias').style.display = modo === 'data' ? 'none' : 'flex';
+  document.getElementById('prazoModoData').style.display = modo === 'data' ? 'flex' : 'none';
+}
+document.getElementById('prazoModo').addEventListener('change', () => {
+  salvarModoJanela(document.getElementById('prazoModo').value);
+  atualizarVisibilidadeModoJanela();
+  renderPrazo();
+});
 document.getElementById('prazoJanelaDias').addEventListener('change', () => {
   let v = parseInt(document.getElementById('prazoJanelaDias').value, 10);
   if(!(v > 0)) v = 14;
   salvarJanelaPrazo(v);
+  renderPrazo();
+});
+document.getElementById('prazoJanelaData').addEventListener('change', () => {
+  salvarDataJanela(document.getElementById('prazoJanelaData').value);
   renderPrazo();
 });
 
@@ -2833,7 +2884,10 @@ document.getElementById('authLogo').src = LOGO_DATA.favicon;
 document.getElementById('faviconLink').href = LOGO_DATA.favicon;
 // Preferências locais não dependem de login nem do Supabase — aplicam já na abertura.
 aplicarSetorPreferido(null);
+document.getElementById('prazoModo').value = lerModoJanela();
 document.getElementById('prazoJanelaDias').value = lerJanelaPrazo();
+document.getElementById('prazoJanelaData').value = lerDataJanela();
+atualizarVisibilidadeModoJanela();
 calcularMetaDia();
 
 async function iniciarApp(){
