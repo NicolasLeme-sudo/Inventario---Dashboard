@@ -224,6 +224,21 @@ tbody tr.pendente td{color:var(--text-secondary); font-style:italic;}
 .status-pill{font-size:10px; font-weight:700; padding:2px 8px; border-radius:999px; text-transform:uppercase;}
 .status-pill.validado{background:rgba(69,198,69,.15); color:var(--positive);}
 .status-pill.pendente{background:rgba(147,165,184,.2); color:var(--text-secondary);}
+.status-pill.atraso{background:rgba(200,16,46,.15); color:var(--negative);}
+
+/* ===== Previsão de Prazo (Visão Geral) ===== */
+.prazo-row{display:grid; grid-template-columns:repeat(2,1fr); gap:16px;}
+.prazo-card{background:var(--card-bg); border:1px solid var(--card-border); border-radius:10px; padding:20px 24px;}
+.prazo-card-head{display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:14px;}
+.prazo-card-head h3{font-size:14px; font-weight:700; color:var(--text-primary);}
+.prazo-metric{display:flex; justify-content:space-between; align-items:baseline; padding:9px 0; border-bottom:1px solid var(--card-border); gap:12px;}
+.prazo-metric:last-child{border-bottom:none;}
+.prazo-metric .lbl{font-size:12px; color:var(--text-secondary);}
+.prazo-metric .val{font-size:14px; font-weight:700; color:var(--text-primary); text-align:right;}
+.prazo-metric .val.destaque{font-size:17px; color:var(--accent-gold);}
+.prazo-janela{display:flex; align-items:center; gap:8px;}
+.prazo-janela input{width:56px; text-align:center; padding:6px 4px; border-radius:6px; border:1px solid var(--card-border); background:var(--bg-deep); color:var(--text-primary); font-family:inherit; font-size:13px;}
+@media (max-width: 1100px){ .prazo-row{grid-template-columns:1fr;} }
 
 footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:right; padding:0 40px;}
 
@@ -422,6 +437,19 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
     <section>
       <div class="section-title">Indicadores Gerais — Endereços</div>
       <div class="kpi-row" id="kpi-row-enderecos"></div>
+    </section>
+
+    <section>
+      <div class="section-title">
+        Previsão de Prazo do Ciclo
+        <span class="hint">projeta o novo prazo com base no ritmo recente — não afeta o gráfico Realizado x Meta x Curva</span>
+      </div>
+      <div class="prazo-janela" style="margin-bottom:14px;">
+        <label class="hint" for="prazoJanelaDias">Considerar os últimos</label>
+        <input type="number" id="prazoJanelaDias" min="1" max="180" value="14">
+        <label class="hint">dias trabalhados na média de ritmo</label>
+      </div>
+      <div class="prazo-row" id="prazoRow"></div>
     </section>
 
     <section>
@@ -694,6 +722,14 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
       <div id="statusBases" class="hint" style="margin-top:12px; line-height:1.9;"></div>
       <div class="hint" style="margin-top:10px;"><b style="color:var(--accent-gold);">*</b> Só Bipagens e Diferença_Por_Local são obrigatórios em todo ciclo. As quatro bases ficam guardadas neste navegador depois do primeiro envio — só reenvie quando elas mudarem.</div>
       <div class="hint" style="margin-top:10px;">A "Base_Custo" substitui o "Valor Unitario" que vem no arquivo de Diferença_Por_Local (não confiável) — o valor de ganhos/perdas em R$ passa a ser calculado por SKU a partir dessa base (usa a coluna "Custo"; se vier 0/vazio, usa o "Préço médio" como reserva).</div>
+      <div id="avisoDuplicados" style="display:none; margin-top:12px; padding:12px; border-radius:8px; border:1px solid var(--negative); background:rgba(220,53,69,0.08);">
+        <div style="font-weight:600; color:var(--negative); margin-bottom:6px;">⚠ Arquivo(s) já processado(s) neste ciclo</div>
+        <div id="avisoDuplicadosLista" style="font-size:13px; line-height:1.7;"></div>
+        <label style="display:flex; align-items:center; gap:8px; margin-top:10px; font-size:13px; cursor:pointer;">
+          <input type="checkbox" id="chkConfirmarReenvio">
+          Já sei — é um reprocessamento intencional (ex.: correção de um arquivo) e quero continuar mesmo assim.
+        </label>
+      </div>
     </div>
 
     <div class="actions">
@@ -950,6 +986,162 @@ function renderKpis(){
     </div>
   `;
 }
+
+/* ================= PREVISÃO DE PRAZO (Visão Geral) =================
+   Não usa o filtro de período do gráfico — sempre olha a série completa do ciclo e recorta
+   sozinha a janela de dias escolhida, contados a partir do dia trabalhado mais recente. */
+const PREF_JANELA_PRAZO = 'inventario_prazo_janela_dias';
+function lerJanelaPrazo(){
+  let v = 14;
+  try{ const s = parseInt(localStorage.getItem(PREF_JANELA_PRAZO), 10); if(s > 0) v = s; }catch(e){}
+  return v;
+}
+function salvarJanelaPrazo(v){ try{ localStorage.setItem(PREF_JANELA_PRAZO, v); }catch(e){} }
+
+// Média diária de itens contados dentro da janela — só considera dias com registro
+// (dias sem contagem, como fim de semana, simplesmente não têm linha em ciclos_diario).
+function ritmoMedio(entradas, janela){
+  const recorte = entradas.slice(-janela);
+  if(!recorte.length) return null;
+  const soma = recorte.reduce((t, e) => t + (e.real || 0), 0);
+  return { media: soma / recorte.length, diasComDado: recorte.length };
+}
+
+function formatarDataBR(d){ return d.toLocaleDateString('pt-BR'); }
+
+function blocoPrazoHTML(titulo, dados){
+  if(dados.semRitmo){
+    return `<div class="prazo-card"><div class="prazo-card-head"><h3>${titulo}</h3></div>
+      <div class="hint">Sem dias trabalhados na janela selecionada para calcular o ritmo.</div></div>`;
+  }
+  const pill = dados.concluido
+    ? '<span class="status-pill validado">Concluído</span>'
+    : dados.diasAtraso > 0
+      ? '<span class="status-pill atraso">Risco de Atraso</span>'
+      : '<span class="status-pill validado">Dentro do Prazo</span>';
+  const linhaAtraso = dados.concluido ? '' : `
+    <div class="prazo-metric"><span class="lbl">${dados.diasAtraso > 0 ? 'Atraso projetado' : 'Folga projetada'}</span>
+      <span class="val" style="color:${dados.diasAtraso > 0 ? 'var(--negative)' : 'var(--positive)'};">${dados.diasAtraso > 0 ? '+' : ''}${dados.diasAtraso} dia(s)</span></div>`;
+  const linhaHeadcount = dados.concluido ? '' : (dados.headcountNecessario === null
+    ? `<div class="prazo-metric"><span class="lbl">Headcount p/ cumprir o prazo</span><span class="val" style="color:var(--negative);">Prazo estipulado já venceu</span></div>`
+    : `<div class="prazo-metric"><span class="lbl">Headcount p/ cumprir o prazo</span>
+        <span class="val">${dados.headcountNecessario} pessoa(s)${dados.headcountAtual != null ? ' <span class="hint">(atual: ' + dados.headcountAtual + ')</span>' : ''}</span></div>`);
+  return `
+    <div class="prazo-card">
+      <div class="prazo-card-head"><h3>${titulo}</h3>${pill}</div>
+      <div class="prazo-metric"><span class="lbl">Pendente</span><span class="val">${Math.round(dados.pendente).toLocaleString('pt-BR')} itens</span></div>
+      <div class="prazo-metric"><span class="lbl">Ritmo médio (últimos ${dados.diasComDado} dia(s) trabalhados)</span><span class="val">${Math.round(dados.media).toLocaleString('pt-BR')} itens/dia</span></div>
+      <div class="prazo-metric"><span class="lbl">Dias necessários</span><span class="val">${dados.diasNecessarios}</span></div>
+      <div class="prazo-metric"><span class="lbl">Novo Prazo Projetado</span><span class="val destaque">${formatarDataBR(dados.novoPrazo)}</span></div>
+      <div class="prazo-metric"><span class="lbl">Prazo Estipulado</span><span class="val">${dados.prazoEstipulado ? formatarDataBR(dados.prazoEstipulado) : '—'}</span></div>
+      ${linhaAtraso}
+      ${linhaHeadcount}
+    </div>`;
+}
+
+function renderPrazo(){
+  const wrap = document.getElementById('prazoRow');
+  if(!wrap) return;
+  if(!cicloAtualResumo || !cicloAtualId || !semanasChart[cicloAtualId]){
+    wrap.innerHTML = '<div class="hint">Sem dados de ciclo carregados ainda.</div>';
+    return;
+  }
+  const r = cicloAtualResumo;
+  const s = semanasChart[cicloAtualId];
+  const janela = lerJanelaPrazo();
+  document.getElementById('prazoJanelaDias').value = janela;
+
+  // série completa, em ordem cronológica (a fonte já vem ordenada por data.asc)
+  const serie = s.diasISO.map((iso, i) => ({ iso, real: s.real[i], setor: s.setor[i] }));
+
+  const prazoEstipulado = r.prazo_estipulado ? new Date(r.prazo_estipulado + 'T00:00:00') : null;
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+  const diasDisponiveis = prazoEstipulado ? Math.ceil((prazoEstipulado - hoje) / 86400000) : null;
+
+  const setorAtual = (r.meta_dia_config && r.meta_dia_config.setor) || null;
+  const PRODUTIVIDADE = {
+    'Calçados': Number(r.produtividade_calcados) || 4500,
+    'Vestuário': Number(r.produtividade_vestuario) || 1500
+  };
+  const PENDENTE_SETOR = {
+    'Calçados': Math.max(0, (Number(r.itens_estoque_calcados)||0) - (Number(r.itens_contados_calcados)||0)),
+    'Vestuário': Math.max(0, (Number(r.itens_estoque_vestuario)||0) - (Number(r.itens_contados_vestuario)||0))
+  };
+
+  function projetarSetor(nomeSetor){
+    if(!nomeSetor || !(nomeSetor in PENDENTE_SETOR)) return { semRitmo: true };
+    const pendente = PENDENTE_SETOR[nomeSetor];
+    const entradasSetor = serie.filter(e => e.setor === nomeSetor);
+    const ritmo = ritmoMedio(entradasSetor, janela);
+    if(pendente <= 0){
+      return { concluido: true, pendente: 0, media: ritmo ? ritmo.media : 0, diasComDado: ritmo ? ritmo.diasComDado : 0,
+        diasNecessarios: 0, novoPrazo: hoje, prazoEstipulado };
+    }
+    if(!ritmo || ritmo.media <= 0) return { semRitmo: true };
+    const diasNecessarios = Math.ceil(pendente / ritmo.media);
+    const novoPrazo = new Date(hoje.getTime() + diasNecessarios * 86400000);
+    const diasAtraso = prazoEstipulado ? Math.round((novoPrazo - prazoEstipulado) / 86400000) : null;
+    let headcountNecessario = null, headcountAtual = null;
+    if(diasDisponiveis !== null){
+      headcountAtual = (r.headcount_padrao != null) ? r.headcount_padrao : null;
+      headcountNecessario = diasDisponiveis > 0
+        ? Math.ceil(pendente / (diasDisponiveis * PRODUTIVIDADE[nomeSetor]))
+        : null;
+    }
+    return { pendente, media: ritmo.media, diasComDado: ritmo.diasComDado, diasNecessarios, novoPrazo, prazoEstipulado,
+      diasAtraso, headcountNecessario, headcountAtual };
+  }
+
+  // Bloco "Geral": soma sequencial — a operação faz um setor por vez (confirmado com o time),
+  // então o prazo geral é "terminar o setor atual" + "depois terminar o outro setor",
+  // este último projetado no ritmo padrão (produtividade × headcount padrão), já que ainda
+  // não há dado real de ritmo nesse setor neste ciclo.
+  function projetarGeral(){
+    const setores = Object.keys(PENDENTE_SETOR);
+    const pendenteTotal = setores.reduce((t,k) => t + PENDENTE_SETOR[k], 0);
+    if(pendenteTotal <= 0){
+      return { concluido: true, pendente: 0, media: 0, diasComDado: 0, diasNecessarios: 0, novoPrazo: hoje, prazoEstipulado };
+    }
+    const outroSetor = setores.find(k => k !== setorAtual);
+    const projAtual = setorAtual ? projetarSetor(setorAtual) : { semRitmo: true };
+    if(projAtual.semRitmo) return { semRitmo: true };
+
+    const headcountPadrao = Number(r.headcount_padrao) || 9;
+    const ritmoPadraoOutro = outroSetor ? headcountPadrao * PRODUTIVIDADE[outroSetor] : 0;
+    const diasOutro = (outroSetor && PENDENTE_SETOR[outroSetor] > 0 && ritmoPadraoOutro > 0)
+      ? Math.ceil(PENDENTE_SETOR[outroSetor] / ritmoPadraoOutro) : 0;
+
+    const diasNecessarios = projAtual.diasNecessarios + diasOutro;
+    const novoPrazo = new Date(hoje.getTime() + diasNecessarios * 86400000);
+    const diasAtraso = prazoEstipulado ? Math.round((novoPrazo - prazoEstipulado) / 86400000) : null;
+
+    // headcount único (mesmas pessoas) que, mantendo a produtividade observada/padrão de
+    // cada setor, fecharia os dois pendentes dentro do prazo estipulado.
+    let headcountNecessario = null;
+    if(diasDisponiveis !== null && diasDisponiveis > 0){
+      const diasPessoaNecessarios = setores.reduce((t,k) => t + (PENDENTE_SETOR[k] / PRODUTIVIDADE[k]), 0);
+      headcountNecessario = Math.ceil(diasPessoaNecessarios / diasDisponiveis);
+    }
+
+    return {
+      pendente: pendenteTotal, media: projAtual.media, diasComDado: projAtual.diasComDado,
+      diasNecessarios, novoPrazo, prazoEstipulado, diasAtraso,
+      headcountNecessario, headcountAtual: r.headcount_padrao
+    };
+  }
+
+  const tituloAtual = setorAtual ? ('Setor em Contagem — ' + setorAtual) : 'Setor em Contagem';
+  const projAtual = setorAtual ? projetarSetor(setorAtual) : { semRitmo: true };
+  const projGeral = projetarGeral();
+
+  wrap.innerHTML = blocoPrazoHTML(tituloAtual, projAtual) + blocoPrazoHTML('Geral (Calçados + Vestuário)', projGeral);
+}
+document.getElementById('prazoJanelaDias').addEventListener('change', () => {
+  let v = parseInt(document.getElementById('prazoJanelaDias').value, 10);
+  if(!(v > 0)) v = 14;
+  salvarJanelaPrazo(v);
+  renderPrazo();
+});
 
 /* ================= GRÁFICO REALIZADO X META X CURVA (dados reais) ================= */
 let semanasChart = {}; // preenchido via Supabase: { ciclo_id: { dias, meta, real, curva, semanaAno } }
@@ -1431,6 +1623,7 @@ async function carregarDiarioDoCiclo(cicloId){
   };
   popularFiltroSemanaAno(cicloId);
   renderChart();
+  renderPrazo();
 }
 
 /* ================= FILTRO DE PERÍODO (Semana do Ano / De-Até) ================= */
@@ -1602,7 +1795,7 @@ function preencherCamposDoCiclo(r){
 /* ================= ESTADO ================= */
 const state = {
   bipagensFiles: [], diferencaFiles: [], fotoFile: null, embalagemFile: null, enderecosFile: null, custoFile: null,
-  resultado: null
+  resultado: null, arquivosDuplicados: []
 };
 
 /* ================= CICLO AUTOMÁTICO (semana ISO) ================= */
@@ -1723,12 +1916,49 @@ document.getElementById('input-bipagens').addEventListener('change', e=>{
   const brutos = Array.from(e.target.files).filter(f=>f.name.endsWith('.tsv'));
   state.bipagensFiles = semNomesRepetidos(brutos, '01 - Bipagens');
   markPicked('bipagens', state.bipagensFiles.length + ' arquivo(s) .tsv');
+  verificarArquivosDuplicados();
 });
 document.getElementById('input-diferenca').addEventListener('change', e=>{
   const brutos = Array.from(e.target.files).filter(f=>f.name.endsWith('.tsv'));
   state.diferencaFiles = semNomesRepetidos(brutos, '02 - Diferença_Por_Local');
   markPicked('diferenca', state.diferencaFiles.length + ' arquivo(s) .tsv');
+  verificarArquivosDuplicados();
 });
+// Checa, contra o Supabase, se algum dos arquivos selecionados agora (por nome) já foi
+// processado antes neste ciclo — evita bipar/diferenciar o mesmo arquivo duas vezes por engano.
+async function verificarArquivosDuplicados(){
+  const box = document.getElementById('avisoDuplicados');
+  const lista = document.getElementById('avisoDuplicadosLista');
+  const chk = document.getElementById('chkConfirmarReenvio');
+  const nomesAtuais = [
+    ...state.bipagensFiles.map(f => ({ tipo:'bipagens', nome:f.name, rotulo:'Bipagens' })),
+    ...state.diferencaFiles.map(f => ({ tipo:'diferenca', nome:f.name, rotulo:'Diferença_Por_Local' }))
+  ];
+  chk.checked = false;
+  if(!nomesAtuais.length){
+    state.arquivosDuplicados = [];
+    box.style.display = 'none';
+    return;
+  }
+  try{
+    const cicloId = cicloAtualAuto().cicloId;
+    const jaProcessados = await sb('arquivos_processados?ciclo_id=eq.' + encodeURIComponent(cicloId) + '&select=tipo,nome_arquivo,processado_em');
+    const mapaAnterior = new Map(jaProcessados.map(r => [r.tipo + '::' + r.nome_arquivo, r.processado_em]));
+    const repetidos = nomesAtuais.filter(a => mapaAnterior.has(a.tipo + '::' + a.nome));
+    state.arquivosDuplicados = repetidos;
+    if(repetidos.length){
+      lista.innerHTML = repetidos.map(r => {
+        const quando = new Date(mapaAnterior.get(r.tipo + '::' + r.nome)).toLocaleString('pt-BR');
+        return '• <b>' + r.nome + '</b> (' + r.rotulo + ') — já processado em ' + quando;
+      }).join('<br>');
+      box.style.display = 'block';
+    } else {
+      box.style.display = 'none';
+    }
+  }catch(e){
+    console.warn('Não foi possível checar arquivos já processados:', e);
+  }
+}
 document.getElementById('input-foto').addEventListener('change', e=>{
   state.fotoFile = e.target.files[0];
   markPicked('foto', state.fotoFile ? state.fotoFile.name : '');
@@ -1981,6 +2211,10 @@ async function processar(){
     log('⚠ Selecione ao menos os arquivos de Bipagens e de Diferença_Por_Local.', 'err');
     return;
   }
+  if(state.arquivosDuplicados && state.arquivosDuplicados.length && !document.getElementById('chkConfirmarReenvio').checked){
+    log('⚠ Arquivo(s) já processado(s) neste ciclo — marque a confirmação acima para reprocessar mesmo assim, ou remova o(s) arquivo(s) repetido(s) da seleção.', 'err');
+    return;
+  }
 
   try{
     log('Iniciando processamento...');
@@ -2005,10 +2239,46 @@ async function processar(){
     if(baseCusto) log('Base_Custo: ' + Object.keys(custoPorItem).length.toLocaleString('pt-BR') + ' SKUs.');
     else log('⚠ Base_Custo nunca carregada — usando "Valor Unitario" do arquivo de Diferença (menos confiável).', 'warn');
 
+    // ---------- CONFIG DO CICLO (calculado cedo — a busca do acumulado no Supabase depende do ciclo_id) ----------
+    const cicloAuto = cicloAtualAuto();
+    const cicloId = cicloAuto.cicloId;
+    const semanaAno = cicloAuto.semanaAno;
+    const anoCiclo = cicloAuto.ano;
+    const prazoEstipulado = document.getElementById('cfgPrazoEstipulado').value;
+    const curvaEstipulada = Number(document.getElementById('cfgCurvaEstipulada').value);
+    const estoqueCalcados = Number(document.getElementById('cfgEstoqueCalcados').value);
+    const estoqueVestuario = Number(document.getElementById('cfgEstoqueVestuario').value);
+
+    // Meta Dia vem da calculadora (headcount × produtividade do setor), não mais de A×B/C×D
+    const setorDia = document.getElementById('cfgSetorDia').value;
+    const hcDia = headcountEfetivo();
+    const metaDia = calcularMetaDia();
+    log('Meta Dia: ' + Math.round(metaDia).toLocaleString('pt-BR') +
+        ' (' + setorDia + ', ' + hcDia.valor + ' pessoas' + (hcDia.confirmado ? '' : ' — headcount padrão') + ')', 'ok');
+
+    // ---------- ACUMULADO JÁ PUBLICADO NO SUPABASE PARA ESTE CICLO ----------
+    // O resumo do ciclo não pode depender só dos arquivos selecionados agora — senão processar
+    // um único dia sobrescreve o total do ciclo inteiro (foi o que causou a queda de saldo do
+    // dia 24/08). Por isso buscamos o que já está publicado e SOMAMOS com o lote de agora.
+    log('Consultando o que já está acumulado deste ciclo no Supabase...');
+    let diarioAcumulado = [];
+    let resumoAnterior = null;
+    let locaisJaContados = new Set();
+    try{
+      diarioAcumulado = await sb('ciclos_diario?ciclo_id=eq.' + encodeURIComponent(cicloId) + '&select=data,itens_contados_dia,bipagens_dia');
+      const resumoResp = await sb('ciclos_resumo?ciclo_id=eq.' + encodeURIComponent(cicloId) + '&select=*');
+      resumoAnterior = (resumoResp && resumoResp[0]) || null;
+      const enderecosResp = await sbAll('enderecos_contados_ciclo?ciclo_id=eq.' + encodeURIComponent(cicloId) + '&select=local');
+      locaisJaContados = new Set(enderecosResp.map(r => r.local));
+      log('↺ Acumulado encontrado: ' + diarioAcumulado.length + ' dia(s) e ' + locaisJaContados.size.toLocaleString('pt-BR') + ' endereço(s) já contados antes deste lote.');
+    }catch(e){
+      log('⚠ Não consegui consultar o acumulado do ciclo no Supabase (' + e.message + ') — o resumo será calculado só com os arquivos desta sessão, como antes.', 'warn');
+    }
+
     // ---------- 1) BIPAGENS ----------
     log('Lendo 01 - Bipagens (' + state.bipagensFiles.length + ' arquivos)...');
-    let bipagensTotal = 0;
-    const bipagensPorDia = {}; // data -> total
+    let bipagensTotalLote = 0;
+    const bipagensPorDia = {}; // data 'dd/mm' -> total (só deste lote)
     for(const file of state.bipagensFiles){
       const data = dataContagemFromFileName(file.name);
       const text = await readFileAsText(file);
@@ -2024,16 +2294,16 @@ async function processar(){
           totalArquivo += toNumber(row[idx]);
         }
       }
-      bipagensTotal += totalArquivo;
+      bipagensTotalLote += totalArquivo;
       bipagensPorDia[data] = (bipagensPorDia[data] || 0) + totalArquivo;
     }
-    log('Bipagens total: ' + bipagensTotal.toLocaleString('pt-BR'), 'ok');
+    log('Bipagens deste lote: ' + bipagensTotalLote.toLocaleString('pt-BR'), 'ok');
 
     // ---------- 2) DIFERENÇA POR LOCAL (fHistórico_Itens) ----------
     log('Lendo 02 - Diferença_Por_Local (' + state.diferencaFiles.length + ' arquivos)...');
-    let itensContadosTotal = 0;
-    const itensContadosPorDia = {};
-    const locaisContados = new Set();
+    let itensContadosTotalLote = 0;
+    const itensContadosPorDia = {}; // data 'dd/mm' -> total (só deste lote)
+    const locaisContados = new Set(); // só deste lote
     let balancoItens = 0, balancoValor = 0;
     let totalGanhosItens = 0, totalPerdasItens = 0, valorGanhos = 0, valorPerdas = 0;
     const acuraciaRatios = [];
@@ -2067,7 +2337,7 @@ async function processar(){
         const valorVariacao = diferenca * valorUnit; // Custo vem da Base_Custo (por Item); sem match, cai no "Valor Unitario" do arquivo
         const variacao = diferenca > 0 ? 'Ganho' : (diferenca < 0 ? 'Perda' : 'Saldo OK'); // ASSUMIDO
 
-        itensContadosTotal += qtdeInv;
+        itensContadosTotalLote += qtdeInv;
         contadosArquivo += qtdeInv;
         if(local) locaisContados.add(local);
 
@@ -2093,12 +2363,63 @@ async function processar(){
       }
       itensContadosPorDia[data] = (itensContadosPorDia[data] || 0) + contadosArquivo;
     }
-    const acuracidadeEstoque = acuraciaRatios.length
+    const acuracidadeBatch = acuraciaRatios.length
       ? acuraciaRatios.reduce((a,b)=>a+b,0) / acuraciaRatios.length : 0;
-    log('Itens Contados total: ' + itensContadosTotal.toLocaleString('pt-BR'), 'ok');
-    log('Endereços Contados (distintos): ' + locaisContados.size, 'ok');
-    log('Acuracidade de Estoque (AVERAGEX): ' + (acuracidadeEstoque*100).toFixed(2) + '%', 'ok');
-    log('Linhas de Ganhos/Perdas (Diferença ≠ 0): ' + ganhosPerdasDetalhe.length);
+    log('Itens Contados neste lote: ' + itensContadosTotalLote.toLocaleString('pt-BR'), 'ok');
+    log('Endereços Contados neste lote (distintos): ' + locaisContados.size, 'ok');
+    log('Linhas de Ganhos/Perdas neste lote: ' + ganhosPerdasDetalhe.length);
+
+    // ---------- 2.1) ACUMULAÇÃO: mescla o lote de agora com o que já estava publicado ----------
+    // Diário: soma dia a dia com o que já veio do Supabase (protegido pela trava de arquivo
+    // duplicado acima — sem ela, reenviar o mesmo arquivo dobraria o dia).
+    const diarioMerge = new Map(); // dataISO -> { itens_contados_dia, bipagens_dia }
+    for(const d of diarioAcumulado){
+      diarioMerge.set(d.data, {
+        itens_contados_dia: Number(d.itens_contados_dia) || 0,
+        bipagens_dia: Number(d.bipagens_dia) || 0
+      });
+    }
+    const todasDatasLote = new Set([...Object.keys(itensContadosPorDia), ...Object.keys(bipagensPorDia)]);
+    for(const dataBR of todasDatasLote){
+      const [dia, mes] = dataBR.split('/');
+      const dataISO = anoCiclo + '-' + mes + '-' + dia;
+      const anterior = diarioMerge.get(dataISO) || { itens_contados_dia: 0, bipagens_dia: 0 };
+      diarioMerge.set(dataISO, {
+        itens_contados_dia: anterior.itens_contados_dia + (itensContadosPorDia[dataBR] || 0),
+        bipagens_dia: anterior.bipagens_dia + (bipagensPorDia[dataBR] || 0)
+      });
+    }
+    const diasTrabalhados = diarioMerge.size;
+    let itensContadosTotal = 0, bipagensTotal = 0;
+    for(const v of diarioMerge.values()){ itensContadosTotal += v.itens_contados_dia; bipagensTotal += v.bipagens_dia; }
+    const mediaBipesDia = diasTrabalhados ? bipagensTotal / diasTrabalhados : 0;
+    const mediaPecasDia = diasTrabalhados ? itensContadosTotal / diasTrabalhados : 0;
+    const curvaReal = itensContadosTotal ? bipagensTotal / itensContadosTotal : 0;
+
+    // Endereços: união dos locais já contados antes com os deste lote — recontagem do mesmo
+    // endereço em outro arquivo não infla o total (cada local só conta uma vez).
+    const locaisContadosAcumulado = new Set(locaisJaContados);
+    for(const l of locaisContados) locaisContadosAcumulado.add(l);
+
+    // Balanço / ganhos / perdas / segmentação: somam com o resumo publicado anteriormente.
+    const numAnterior = (campo) => resumoAnterior ? (Number(resumoAnterior[campo]) || 0) : 0;
+    const balancoItensAcum = numAnterior('balanco_itens') + balancoItens;
+    const balancoValorAcum = numAnterior('balanco_valor') + balancoValor;
+    const totalGanhosAcum = numAnterior('total_ganhos') + totalGanhosItens;
+    const totalPerdasAcum = numAnterior('total_perdas') + totalPerdasItens;
+    const valorGanhosAcum = numAnterior('valor_ganhos') + valorGanhos;
+    const valorPerdasAcum = numAnterior('valor_perdas') + valorPerdas;
+    // Acuracidade: média ponderada pelo nº de itens contados de cada lado (aproximação — o
+    // valor exato exigiria guardar todas as razões individuais, não só a média anterior).
+    const pesoAnterior = numAnterior('itens_contados');
+    const pesoBatch = acuraciaRatios.length;
+    const acuracidadeEstoque = (pesoAnterior + pesoBatch) > 0
+      ? (numAnterior('acuracidade_estoque') * pesoAnterior + acuracidadeBatch * pesoBatch) / (pesoAnterior + pesoBatch)
+      : 0;
+
+    log('Itens Contados acumulados no ciclo: ' + itensContadosTotal.toLocaleString('pt-BR'), 'ok');
+    log('Endereços Contados acumulados no ciclo (distintos): ' + locaisContadosAcumulado.size.toLocaleString('pt-BR'), 'ok');
+    log('Acuracidade de Estoque acumulada: ' + (acuracidadeEstoque*100).toFixed(2) + '%', 'ok');
 
     // ---------- 3) FOTO ESTOQUE INÍCIO ----------
     const itensEmEstoqueTotal = baseFoto.dados.itensEmEstoqueTotal;
@@ -2118,8 +2439,10 @@ async function processar(){
       else if(seg === 'Vestuários') itensContadosVestuario += qtde;
       else itensNaoMapeados += qtde;
     }
-    log('Itens Contados Calçados: ' + itensContadosCalcados.toLocaleString('pt-BR'), 'ok');
-    log('Itens Contados Vestuário: ' + itensContadosVestuario.toLocaleString('pt-BR'), 'ok');
+    const itensContadosCalcadosAcum = numAnterior('itens_contados_calcados') + itensContadosCalcados;
+    const itensContadosVestuarioAcum = numAnterior('itens_contados_vestuario') + itensContadosVestuario;
+    log('Itens Contados Calçados (acumulado): ' + itensContadosCalcadosAcum.toLocaleString('pt-BR'), 'ok');
+    log('Itens Contados Vestuário (acumulado): ' + itensContadosVestuarioAcum.toLocaleString('pt-BR'), 'ok');
     if(itensPorNome > 0) log('ℹ ' + itensPorNome.toLocaleString('pt-BR') + ' itens classificados pelo nome do produto (SKU não estava na Base_Embalagem)', 'warn');
     if(itensNaoMapeados > 0) log('⚠ ' + itensNaoMapeados.toLocaleString('pt-BR') + ' itens contados não bateram com nenhum SKU da Base_Embalagem nem com palavras-chave do nome (ficam de fora da % por segmento)', 'warn');
 
@@ -2133,7 +2456,7 @@ async function processar(){
     const blocosSemSetor = new Set();
     state.enderecosPendentes = [];
     for(const [local, info] of enderecosUnicos.entries()){
-      const contado = locaisContados.has(local);
+      const contado = locaisContadosAcumulado.has(local);
       if(contado) enderecosContadosTotal++; else enderecosPendentesTotal++;
       const setorEndereco = setorDoEndereco(info);
       if(!contado){
@@ -2161,32 +2484,10 @@ async function processar(){
     log('Endereços Calçados: ' + enderecosContadosCalcados.toLocaleString('pt-BR') + '/' + enderecosEstoqueCalcados.toLocaleString('pt-BR') +
         ' | Vestuário: ' + enderecosContadosVestuario.toLocaleString('pt-BR') + '/' + enderecosEstoqueVestuario.toLocaleString('pt-BR'), 'ok');
 
-    // ---------- 6) CONFIG DO CICLO ----------
-    const cicloAuto = cicloAtualAuto();
-    const cicloId = cicloAuto.cicloId;
-    const semanaAno = cicloAuto.semanaAno;
-    const anoCiclo = cicloAuto.ano;
-    const prazoEstipulado = document.getElementById('cfgPrazoEstipulado').value;
-    const curvaEstipulada = Number(document.getElementById('cfgCurvaEstipulada').value);
-    const estoqueCalcados = Number(document.getElementById('cfgEstoqueCalcados').value);
-    const estoqueVestuario = Number(document.getElementById('cfgEstoqueVestuario').value);
-
-    // Meta Dia agora vem da calculadora (headcount × produtividade do setor), não mais de A×B/C×D
-    const setorDia = document.getElementById('cfgSetorDia').value;
-    const hcDia = headcountEfetivo();
-    const metaDia = calcularMetaDia();
-    log('Meta Dia: ' + Math.round(metaDia).toLocaleString('pt-BR') +
-        ' (' + setorDia + ', ' + hcDia.valor + ' pessoas' + (hcDia.confirmado ? '' : ' — headcount padrão') + ')', 'ok');
-
-    // ---------- 7) MEDIDAS DERIVADAS ----------
+    // ---------- 7) MEDIDAS DERIVADAS (com os totais acumulados do ciclo) ----------
     const itensPendentesTotal = itensEmEstoqueTotal - itensContadosTotal;
-    const itensPendentesCalcados = estoqueCalcados - itensContadosCalcados;
-    const itensPendentesVestuario = estoqueVestuario - itensContadosVestuario;
-
-    const diasTrabalhados = Object.keys(itensContadosPorDia).length;
-    const mediaBipesDia = diasTrabalhados ? bipagensTotal / diasTrabalhados : 0;
-    const mediaPecasDia = diasTrabalhados ? itensContadosTotal / diasTrabalhados : 0;
-    const curvaReal = itensContadosTotal ? bipagensTotal / itensContadosTotal : 0;
+    const itensPendentesCalcados = estoqueCalcados - itensContadosCalcadosAcum;
+    const itensPendentesVestuario = estoqueVestuario - itensContadosVestuarioAcum;
 
     const diasNecessariosConclusao = mediaPecasDia > 0 ? itensPendentesTotal / mediaPecasDia : null;
     let novoPrazo = null, diasAtrasoProjetado = null, statusPrazo = null;
@@ -2221,14 +2522,12 @@ async function processar(){
       });
     }
 
-    // ---------- 9) DIÁRIO PARA O GRÁFICO ----------
-    const todasDatas = new Set([...Object.keys(itensContadosPorDia), ...Object.keys(bipagensPorDia)]);
-    const ciclosDiario = [...todasDatas].sort().map(data=>{
-      const contadosDia = itensContadosPorDia[data] || 0;
-      const bipagensDia = bipagensPorDia[data] || 0;
+    // ---------- 9) DIÁRIO PARA O GRÁFICO (já acumulado — cada dia leva o total final) ----------
+    const ciclosDiario = [...diarioMerge.keys()].sort().map(dataISO=>{
+      const v = diarioMerge.get(dataISO);
       return {
-        data, meta_dia: metaDia, itens_contados_dia: contadosDia,
-        bipagens_dia: bipagensDia, curva_real_dia: contadosDia ? bipagensDia / contadosDia : 0,
+        data: dataISO, meta_dia: metaDia, itens_contados_dia: v.itens_contados_dia,
+        bipagens_dia: v.bipagens_dia, curva_real_dia: v.itens_contados_dia ? v.bipagens_dia / v.itens_contados_dia : 0,
         setor: setorDia, headcount: hcDia.confirmado ? hcDia.valor : null
       };
     });
@@ -2238,13 +2537,13 @@ async function processar(){
       resumo: {
         ciclo_id: cicloId, semana_ano: semanaAno, prazo_estipulado: prazoEstipulado,
         itens_em_estoque: itensEmEstoqueTotal, itens_contados: itensContadosTotal, itens_pendentes: itensPendentesTotal,
-        itens_estoque_calcados: estoqueCalcados, itens_contados_calcados: itensContadosCalcados,
-        itens_estoque_vestuario: estoqueVestuario, itens_contados_vestuario: itensContadosVestuario,
+        itens_estoque_calcados: estoqueCalcados, itens_contados_calcados: itensContadosCalcadosAcum,
+        itens_estoque_vestuario: estoqueVestuario, itens_contados_vestuario: itensContadosVestuarioAcum,
         enderecos_em_estoque: enderecosEmEstoqueTotal, enderecos_contados: enderecosContadosTotal, enderecos_pendentes: enderecosPendentesTotal,
         enderecos_estoque_calcados: enderecosEstoqueCalcados, enderecos_contados_calcados: enderecosContadosCalcados,
         enderecos_estoque_vestuario: enderecosEstoqueVestuario, enderecos_contados_vestuario: enderecosContadosVestuario,
-        acuracidade_estoque: acuracidadeEstoque, balanco_itens: balancoItens, balanco_valor: balancoValor,
-        total_ganhos: totalGanhosItens, total_perdas: totalPerdasItens, valor_ganhos: valorGanhos, valor_perdas: valorPerdas,
+        acuracidade_estoque: acuracidadeEstoque, balanco_itens: balancoItensAcum, balanco_valor: balancoValorAcum,
+        total_ganhos: totalGanhosAcum, total_perdas: totalPerdasAcum, valor_ganhos: valorGanhosAcum, valor_perdas: valorPerdasAcum,
         dias_trabalhados: diasTrabalhados, media_bipes_dia: mediaBipesDia, media_pecas_dia: mediaPecasDia,
         curva_real: curvaReal, curva_estipulada: curvaEstipulada,
         novo_prazo: novoPrazo ? novoPrazo.toISOString().slice(0,10) : null,
@@ -2269,7 +2568,15 @@ async function processar(){
         codigo_produto: g.codigo, nome_produto: g.produto, variacao: g.variacao,
         diferenca: g.diferenca, valor_diferenca: g.valorVariacao
       })),
-      regiaoBloco: regiaoBlocoDetalhe.map(r=>({ ciclo_id: cicloId, piso:null, ...r }))
+      regiaoBloco: regiaoBlocoDetalhe.map(r=>({ ciclo_id: cicloId, piso:null, ...r })),
+      enderecosNovosContados: [...locaisContados].map(local => {
+        const info = enderecosUnicos.get(local);
+        return { ciclo_id: cicloId, local, bloco: info ? (info.bloco || null) : null, setor: info ? setorDoEndereco(info) : null };
+      }),
+      arquivosProcessadosAgora: [
+        ...state.bipagensFiles.map(f => ({ ciclo_id: cicloId, tipo: 'bipagens', nome_arquivo: f.name })),
+        ...state.diferencaFiles.map(f => ({ ciclo_id: cicloId, tipo: 'diferenca', nome_arquivo: f.name }))
+      ]
     };
 
     const btnPend = document.getElementById('btnEndPendentes');
@@ -2387,13 +2694,8 @@ async function enviarSupabase(){
     await supabaseRequest('ciclos_resumo', 'POST', state.resultado.resumo, { 'Prefer':'resolution=merge-duplicates' });
     log('✔ ciclos_resumo OK', 'ok');
 
-    log('Enviando ciclos_diario (upsert)...');
-    const anoCiclo = state.resultado.anoCiclo;
-    const diarioComCiclo = state.resultado.diario.map(d=>{
-      const [dia, mes] = d.data.split('/');
-      const dataISO = anoCiclo + '-' + mes + '-' + dia;
-      return { ciclo_id: cicloId, ...d, data: dataISO };
-    });
+    log('Enviando ciclos_diario (upsert — valores já acumulados por dia)...');
+    const diarioComCiclo = state.resultado.diario.map(d => ({ ciclo_id: cicloId, ...d }));
     if(diarioComCiclo.length){
       await supabaseRequest('ciclos_diario?on_conflict=ciclo_id,data', 'POST', diarioComCiclo, { 'Prefer':'resolution=merge-duplicates' });
     }
@@ -2417,6 +2719,27 @@ async function enviarSupabase(){
       await supabaseRequest('regiao_bloco_detalhe?on_conflict=ciclo_id,bloco', 'POST', state.resultado.regiaoBloco, { 'Prefer':'resolution=merge-duplicates' });
     }
     log('✔ regiao_bloco_detalhe OK (' + state.resultado.regiaoBloco.length + ' blocos)', 'ok');
+
+    // enderecos_contados_ciclo: um registro por local — ignora conflito (o mesmo endereço
+    // recontado em outro arquivo não gera linha nova nem infla "Endereços Contados").
+    if(state.resultado.enderecosNovosContados.length){
+      log('Registrando endereços contados (' + state.resultado.enderecosNovosContados.length + ' deste lote)...');
+      for(let i=0;i<state.resultado.enderecosNovosContados.length;i+=500){
+        await supabaseRequest('enderecos_contados_ciclo?on_conflict=ciclo_id,local', 'POST',
+          state.resultado.enderecosNovosContados.slice(i,i+500), { 'Prefer':'resolution=ignore-duplicates' });
+      }
+      log('✔ enderecos_contados_ciclo OK', 'ok');
+    }
+
+    // arquivos_processados: trava contra reenvio acidental do mesmo arquivo no próximo ciclo.
+    log('Registrando arquivos processados neste ciclo...');
+    const quemArquivos = document.getElementById('cfgSeuNome').value.trim() || null;
+    await supabaseRequest('arquivos_processados?on_conflict=ciclo_id,tipo,nome_arquivo', 'POST',
+      state.resultado.arquivosProcessadosAgora.map(a => ({ ...a, enviado_por: quemArquivos })),
+      { 'Prefer':'resolution=merge-duplicates' });
+    log('✔ arquivos_processados OK', 'ok');
+    state.arquivosDuplicados = [];
+    document.getElementById('avisoDuplicados').style.display = 'none';
 
     log('Registrando log de abastecimento...');
     const quem = document.getElementById('cfgSeuNome').value.trim() || null;
@@ -2498,6 +2821,7 @@ document.getElementById('authLogo').src = LOGO_DATA.favicon;
 document.getElementById('faviconLink').href = LOGO_DATA.favicon;
 // Preferências locais não dependem de login nem do Supabase — aplicam já na abertura.
 aplicarSetorPreferido(null);
+document.getElementById('prazoJanelaDias').value = lerJanelaPrazo();
 calcularMetaDia();
 
 async function iniciarApp(){
