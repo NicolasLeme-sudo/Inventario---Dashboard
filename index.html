@@ -658,27 +658,27 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
       <h2>4. Arquivos do ciclo</h2>
       <div class="grid">
         <label class="filepick" id="pick-bipagens">
-          📄 01 - Bipagens<br><span class="hint" id="pick-bipagens-info">selecionar 1 ou mais arquivos (.tsv)</span>
+          📄 01 - Bipagens <b style="color:var(--accent-gold);">*</b><br><span class="hint" id="pick-bipagens-info">selecionar 1 ou mais arquivos (.tsv)</span>
           <input type="file" id="input-bipagens" multiple accept=".tsv">
         </label>
         <label class="filepick" id="pick-diferenca">
-          📄 02 - Diferença_Por_Local<br><span class="hint" id="pick-diferenca-info">selecionar 1 ou mais arquivos (.tsv)</span>
+          📄 02 - Diferença_Por_Local <b style="color:var(--accent-gold);">*</b><br><span class="hint" id="pick-diferenca-info">selecionar 1 ou mais arquivos (.tsv)</span>
           <input type="file" id="input-diferenca" multiple accept=".tsv">
         </label>
         <label class="filepick" id="pick-foto">
-          📄 03 - Foto_Estoque_Inicio.xlsx<br><span class="hint" id="pick-foto-info">selecionar arquivo</span>
+          📄 03 - Foto_Estoque_Inicio.xlsx<br><span class="hint" id="pick-foto-info">base — só quando mudar</span>
           <input type="file" id="input-foto" accept=".xlsx">
         </label>
         <label class="filepick" id="pick-embalagem">
-          📄 Base_Embalagem.xlsx<br><span class="hint" id="pick-embalagem-info">selecionar arquivo</span>
+          📄 Base_Embalagem.xlsx<br><span class="hint" id="pick-embalagem-info">base — só quando mudar</span>
           <input type="file" id="input-embalagem" accept=".xlsx">
         </label>
         <label class="filepick" id="pick-enderecos">
-          📄 Base_Estoque.xlsx (endereços)<br><span class="hint" id="pick-enderecos-info">selecionar arquivo</span>
+          📄 Base_Estoque.xlsx (endereços)<br><span class="hint" id="pick-enderecos-info">base — só quando mudar</span>
           <input type="file" id="input-enderecos" accept=".xlsx">
         </label>
         <label class="filepick" id="pick-custo">
-          📄 Base_Custo.xlsx (Item / Preço médio / Custo)<br><span class="hint" id="pick-custo-info">selecionar arquivo</span>
+          📄 Base_Custo.xlsx (Item / Preço médio / Custo)<br><span class="hint" id="pick-custo-info">base — só quando mudar</span>
           <input type="file" id="input-custo" accept=".xlsx">
         </label>
       </div>
@@ -690,6 +690,8 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
         <div class="hint" id="ultimo-enderecos" style="max-height:54px;overflow:hidden;text-overflow:ellipsis;">Último enviado: —</div>
         <div class="hint" id="ultimo-custo" style="max-height:54px;overflow:hidden;text-overflow:ellipsis;">Último enviado: —</div>
       </div>
+      <div id="statusBases" class="hint" style="margin-top:12px; line-height:1.9;"></div>
+      <div class="hint" style="margin-top:10px;"><b style="color:var(--accent-gold);">*</b> Só Bipagens e Diferença_Por_Local são obrigatórios em todo ciclo. As quatro bases ficam guardadas neste navegador depois do primeiro envio — só reenvie quando elas mudarem.</div>
       <div class="hint" style="margin-top:10px;">A "Base_Custo" substitui o "Valor Unitario" que vem no arquivo de Diferença_Por_Local (não confiável) — o valor de ganhos/perdas em R$ passa a ser calculado por SKU a partir dessa base (usa a coluna "Custo"; se vier 0/vazio, usa o "Préço médio" como reserva).</div>
     </div>
 
@@ -1639,6 +1641,31 @@ async function carregarLogAbastecimento(){
   }catch(err){ console.error('Falha ao carregar log de abastecimento:', err); }
 }
 
+/* ================= STATUS DAS BASES GUARDADAS ================= */
+const BASES_INFO = [
+  { chave:'foto',      rotulo:'Foto_Estoque_Inicio' },
+  { chave:'embalagem', rotulo:'Base_Embalagem' },
+  { chave:'enderecos', rotulo:'Base_Estoque (endereços)' },
+  { chave:'custo',     rotulo:'Base_Custo' }
+];
+async function atualizarStatusBases(){
+  const el = document.getElementById('statusBases');
+  if(!el) return;
+  const partes = await Promise.all(BASES_INFO.map(async b => {
+    const c = await lerBaseCache(b.chave);
+    if(!c) return '<div>✖ <b>' + b.rotulo + '</b>: nunca carregada — selecione o arquivo uma vez.</div>';
+    return '<div>✔ <b>' + b.rotulo + '</b>: ' + c.nomeArquivo + ' · guardada em ' +
+      new Date(c.salvoEm).toLocaleString('pt-BR') +
+      ' <a href="#" onclick="descartarBase(\'' + b.chave + '\'); return false;" style="color:var(--text-secondary);">(descartar)</a></div>';
+  }));
+  el.innerHTML = '<div style="margin-bottom:4px;"><b>Bases guardadas neste navegador</b></div>' + partes.join('');
+}
+async function descartarBase(chave){
+  await limparBaseCache(chave);
+  atualizarStatusBases();
+  log('Base "' + chave + '" descartada — envie o arquivo novamente no próximo processamento.', 'warn');
+}
+
 /* ================= UI: SELEÇÃO DE ARQUIVOS ================= */
 function markPicked(id, text){
   document.getElementById('pick-'+id).classList.add('ok');
@@ -1753,6 +1780,76 @@ async function readXLSX(file){
   return XLSX.utils.sheet_to_json(sheet, { defval: null });
 }
 
+/* ================= CACHE DAS BASES DE APOIO =================
+   Foto de Estoque, Embalagem, Endereços e Custo mudam de vez em quando, mas eram exigidas
+   em todo processamento. Agora ficam guardadas no navegador (IndexedDB, que aguenta o
+   volume da Base_Custo) e só precisam ser reenviadas quando realmente mudarem. */
+const BASES_DB = 'inventario_bases';
+const BASES_STORE = 'bases';
+function abrirBasesDB(){
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(BASES_DB, 1);
+    req.onupgradeneeded = () => {
+      if(!req.result.objectStoreNames.contains(BASES_STORE)) req.result.createObjectStore(BASES_STORE);
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function salvarBaseCache(nome, dados, nomeArquivo){
+  try{
+    const db = await abrirBasesDB();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(BASES_STORE, 'readwrite');
+      tx.objectStore(BASES_STORE).put({ dados, nomeArquivo, salvoEm: new Date().toISOString() }, nome);
+      tx.oncomplete = resolve; tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  }catch(e){ console.warn('Não foi possível guardar a base em cache:', e); }
+}
+async function lerBaseCache(nome){
+  try{
+    const db = await abrirBasesDB();
+    const valor = await new Promise((resolve, reject) => {
+      const tx = db.transaction(BASES_STORE, 'readonly');
+      const req = tx.objectStore(BASES_STORE).get(nome);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+    db.close();
+    return valor;
+  }catch(e){ return null; }
+}
+async function limparBaseCache(nome){
+  try{
+    const db = await abrirBasesDB();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(BASES_STORE, 'readwrite');
+      tx.objectStore(BASES_STORE).delete(nome);
+      tx.oncomplete = resolve; tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  }catch(e){}
+}
+
+// Devolve a base pronta: usa o arquivo se o usuário escolheu um agora; senão o cache.
+async function obterBase(nome, arquivo, parser, rotulo){
+  if(arquivo){
+    log('Lendo ' + rotulo + '...');
+    const dados = await parser(arquivo);
+    await salvarBaseCache(nome, dados, arquivo.name);
+    atualizarStatusBases();
+    return { dados, origem: 'arquivo', nomeArquivo: arquivo.name };
+  }
+  const cache = await lerBaseCache(nome);
+  if(cache){
+    log('↺ ' + rotulo + ': usando base guardada (' + cache.nomeArquivo + ', de ' +
+        new Date(cache.salvoEm).toLocaleDateString('pt-BR') + ')');
+    return { dados: cache.dados, origem: 'cache', nomeArquivo: cache.nomeArquivo };
+  }
+  return null;
+}
+
 /* ================= DE-PARA SEGMENTO ================= */
 // De/para oficial de endereço -> setor: o bloco do endereço define o setor.
 const BLOCO_SETOR = { A:'Calçados', B:'Calçados', C:'Calçados', E:'Vestuário', F:'Vestuário', G:'Vestuário' };
@@ -1788,6 +1885,58 @@ function segmentoPorNome(nomeProduto){
   return null;
 }
 
+/* ================= LEITURA DAS BASES DE APOIO ================= */
+async function parseBaseCusto(file){
+  const rows = await readXLSX(file);
+  const chaves = rows.length ? Object.keys(rows[0]) : [];
+  const cItem  = chaves.find(k => k.trim().toLowerCase() === 'item');
+  const cCusto = chaves.find(k => k.trim().toLowerCase() === 'custo');
+  const cPreco = chaves.find(k => k.trim().toLowerCase().startsWith('pre'));
+  const custoPorItem = {};
+  rows.forEach(r => {
+    const item = cItem ? String(r[cItem] || '').trim() : '';
+    if(!item) return;
+    const custo = cCusto ? toNumber(r[cCusto]) : 0;
+    const preco = cPreco ? toNumber(r[cPreco]) : 0;
+    custoPorItem[item] = custo > 0 ? custo : preco;
+  });
+  return { custoPorItem };
+}
+async function parseBaseFoto(file){
+  const rows = await readXLSX(file);
+  let itensEmEstoqueTotal = 0;
+  const estoquePorBloco = {};
+  for(const r of rows){
+    const qtd = Number(r['QTD ESTOQUE']) || 0;
+    itensEmEstoqueTotal += qtd;
+    const bloco = r['BLOCO'];
+    if(bloco){ estoquePorBloco[bloco] = (estoquePorBloco[bloco] || 0) + qtd; }
+  }
+  return { itensEmEstoqueTotal, estoquePorBloco };
+}
+async function parseBaseEmbalagem(file){
+  const rows = await readXLSX(file);
+  const skuParaSegmento = {};
+  for(const r of rows){
+    const sku = r['SKU'], seg = r['SEGMENTO'];
+    if(sku && seg) skuParaSegmento[sku] = DE_PARA_SEGMENTO[seg] || null;
+  }
+  return { skuParaSegmento };
+}
+async function parseBaseEnderecos(file){
+  const rows = await readXLSX(file);
+  const enderecos = [];
+  const vistos = new Set();
+  for(const r of rows){
+    const local = r['Local'];
+    if(local && !vistos.has(local)){
+      vistos.add(local);
+      enderecos.push({ local, bloco: r['Bloco'], setor: r['Setor'], regiao: r['Região'], linha: r });
+    }
+  }
+  return { enderecos };
+}
+
 /* ================= PROCESSAMENTO PRINCIPAL ================= */
 document.getElementById('btnProcessar').addEventListener('click', processar);
 document.getElementById('btnEnviar').addEventListener('click', enviarSupabase);
@@ -1797,33 +1946,33 @@ async function processar(){
   document.getElementById('btnEnviar').disabled = true;
   document.getElementById('cardResumo').style.display = 'none';
 
-  if(!state.bipagensFiles.length || !state.diferencaFiles.length || !state.fotoFile || !state.embalagemFile || !state.enderecosFile){
-    log('⚠ Selecione todos os arquivos antes de processar.', 'err');
+  if(!state.bipagensFiles.length || !state.diferencaFiles.length){
+    log('⚠ Selecione ao menos os arquivos de Bipagens e de Diferença_Por_Local.', 'err');
     return;
   }
 
   try{
     log('Iniciando processamento...');
 
-    // ---------- 0) BASE DE CUSTO (opcional, mas recomendada) ----------
-    const custoPorItem = {};
-    if(state.custoFile){
-      log('Lendo Base_Custo...');
-      const custoRows = await readXLSX(state.custoFile);
-      const idxItem = custoRows.length ? Object.keys(custoRows[0]).find(k => k.trim().toLowerCase() === 'item') : null;
-      const idxCusto = custoRows.length ? Object.keys(custoRows[0]).find(k => k.trim().toLowerCase() === 'custo') : null;
-      const idxPreco = custoRows.length ? Object.keys(custoRows[0]).find(k => k.trim().toLowerCase().startsWith('pre')) : null;
-      custoRows.forEach(r => {
-        const item = idxItem ? String(r[idxItem] || '').trim() : '';
-        if(!item) return;
-        const custo = idxCusto ? toNumber(r[idxCusto]) : 0;
-        const preco = idxPreco ? toNumber(r[idxPreco]) : 0;
-        custoPorItem[item] = custo > 0 ? custo : preco;
-      });
-      log('Base_Custo carregada: ' + Object.keys(custoPorItem).length.toLocaleString('pt-BR') + ' SKUs.');
-    } else {
-      log('⚠ Base_Custo não selecionada — usando "Valor Unitario" do arquivo de Diferença (menos confiável).', 'warn');
+    // ---------- 0) BASES DE APOIO (arquivo novo ou base guardada) ----------
+    const baseCusto      = await obterBase('custo',      state.custoFile,      parseBaseCusto,      'Base_Custo');
+    const baseFoto       = await obterBase('foto',       state.fotoFile,       parseBaseFoto,       'Foto_Estoque_Inicio');
+    const baseEmbalagem  = await obterBase('embalagem',  state.embalagemFile,  parseBaseEmbalagem,  'Base_Embalagem');
+    const baseEnderecos  = await obterBase('enderecos',  state.enderecosFile,  parseBaseEnderecos,  'Base_Estoque (endereços)');
+
+    const faltando = [];
+    if(!baseFoto)      faltando.push('Foto_Estoque_Inicio');
+    if(!baseEmbalagem) faltando.push('Base_Embalagem');
+    if(!baseEnderecos) faltando.push('Base_Estoque (endereços)');
+    if(faltando.length){
+      log('⚠ Estas bases nunca foram carregadas neste navegador: ' + faltando.join(', ') +
+          '. Selecione uma vez — depois ficam guardadas e você só precisa mandar Bipagens e Diferença.', 'err');
+      return;
     }
+
+    const custoPorItem = baseCusto ? baseCusto.dados.custoPorItem : {};
+    if(baseCusto) log('Base_Custo: ' + Object.keys(custoPorItem).length.toLocaleString('pt-BR') + ' SKUs.');
+    else log('⚠ Base_Custo nunca carregada — usando "Valor Unitario" do arquivo de Diferença (menos confiável).', 'warn');
 
     // ---------- 1) BIPAGENS ----------
     log('Lendo 01 - Bipagens (' + state.bipagensFiles.length + ' arquivos)...');
@@ -1921,29 +2070,12 @@ async function processar(){
     log('Linhas de Ganhos/Perdas (Diferença ≠ 0): ' + ganhosPerdasDetalhe.length);
 
     // ---------- 3) FOTO ESTOQUE INÍCIO ----------
-    log('Lendo Foto_Estoque_Inicio.xlsx...');
-    const fotoRows = await readXLSX(state.fotoFile);
-    let itensEmEstoqueTotal = 0;
-    const estoquePorBloco = {}; // bloco -> soma QTD ESTOQUE
-    for(const r of fotoRows){
-      const qtd = Number(r['QTD ESTOQUE']) || 0;
-      itensEmEstoqueTotal += qtd;
-      const bloco = r['BLOCO'];
-      if(bloco){ estoquePorBloco[bloco] = (estoquePorBloco[bloco] || 0) + qtd; }
-    }
+    const itensEmEstoqueTotal = baseFoto.dados.itensEmEstoqueTotal;
+    const estoquePorBloco = baseFoto.dados.estoquePorBloco; // bloco -> soma QTD ESTOQUE
     log('Itens em Estoque (total): ' + itensEmEstoqueTotal.toLocaleString('pt-BR'), 'ok');
 
     // ---------- 4) BASE EMBALAGEM (De-Para Segmento) ----------
-    log('Lendo Base_Embalagem.xlsx...');
-    const embalagemRows = await readXLSX(state.embalagemFile);
-    const skuParaSegmento2 = {};
-    for(const r of embalagemRows){
-      const sku = r['SKU'];
-      const segmentoBruto = r['SEGMENTO'];
-      if(sku && segmentoBruto){
-        skuParaSegmento2[sku] = DE_PARA_SEGMENTO[segmentoBruto] || null;
-      }
-    }
+    const skuParaSegmento2 = baseEmbalagem.dados.skuParaSegmento;
     let itensContadosCalcados = 0, itensContadosVestuario = 0, itensNaoMapeados = 0, itensPorNome = 0;
     for(const [sku, qtde] of Object.entries(somaQtdePorSKU)){
       let seg = skuParaSegmento2[sku];
@@ -1961,15 +2093,8 @@ async function processar(){
     if(itensNaoMapeados > 0) log('⚠ ' + itensNaoMapeados.toLocaleString('pt-BR') + ' itens contados não bateram com nenhum SKU da Base_Embalagem nem com palavras-chave do nome (ficam de fora da % por segmento)', 'warn');
 
     // ---------- 5) BASE DE ENDEREÇOS (dBase_Endereços + Validado) ----------
-    log('Lendo Base_Estoque.xlsx (endereços)...');
-    const enderecosRows = await readXLSX(state.enderecosFile);
-    const enderecosUnicos = new Map(); // local -> {bloco, setor, regiao}
-    for(const r of enderecosRows){
-      const local = r['Local'];
-      if(local && !enderecosUnicos.has(local)){
-        enderecosUnicos.set(local, { bloco: r['Bloco'], setor: r['Setor'], regiao: r['Região'], linha: r });
-      }
-    }
+    const enderecosUnicos = new Map(); // local -> {bloco, setor, regiao, linha}
+    baseEnderecos.dados.enderecos.forEach(e => enderecosUnicos.set(e.local, e));
     const enderecosEmEstoqueTotal = enderecosUnicos.size;
     let enderecosContadosTotal = 0, enderecosPendentesTotal = 0;
     let enderecosEstoqueCalcados = 0, enderecosContadosCalcados = 0;
@@ -2342,6 +2467,7 @@ document.getElementById('authLogo').src = LOGO_DATA.favicon;
 document.getElementById('faviconLink').href = LOGO_DATA.favicon;
 
 async function iniciarApp(){
+  atualizarStatusBases();
   aplicarCicloAuto();
   calcularMetaDia();
   await carregarLogAbastecimento();
