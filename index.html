@@ -730,6 +730,13 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
           Já sei — é um reprocessamento intencional (ex.: correção de um arquivo) e quero continuar mesmo assim.
         </label>
       </div>
+      <div style="margin-top:12px; padding:12px; border-radius:8px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03);">
+        <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
+          <input type="checkbox" id="chkModoReconciliacao">
+          <b>Modo Reconciliação</b> — este lote é a base COMPLETA do ciclo (todos os arquivos de Bipagens e Diferença desde o início), e deve <b>substituir</b> o resumo publicado em vez de somar a ele.
+        </label>
+        <div class="hint" style="margin-top:6px;">Use só para corrigir um resumo que ficou incorreto (ex.: quando um processamento anterior sobrescreveu o total do ciclo). Nesse modo a trava de arquivo duplicado é ignorada e o resumo é recalculado do zero com o que estiver selecionado agora — por isso é essencial selecionar TODOS os arquivos do ciclo, não só os mais recentes.</div>
+      </div>
     </div>
 
     <div class="actions">
@@ -2211,13 +2218,14 @@ async function processar(){
     log('⚠ Selecione ao menos os arquivos de Bipagens e de Diferença_Por_Local.', 'err');
     return;
   }
-  if(state.arquivosDuplicados && state.arquivosDuplicados.length && !document.getElementById('chkConfirmarReenvio').checked){
+  const modoReconciliacao = document.getElementById('chkModoReconciliacao').checked;
+  if(!modoReconciliacao && state.arquivosDuplicados && state.arquivosDuplicados.length && !document.getElementById('chkConfirmarReenvio').checked){
     log('⚠ Arquivo(s) já processado(s) neste ciclo — marque a confirmação acima para reprocessar mesmo assim, ou remova o(s) arquivo(s) repetido(s) da seleção.', 'err');
     return;
   }
 
   try{
-    log('Iniciando processamento...');
+    log('Iniciando processamento...' + (modoReconciliacao ? ' (MODO RECONCILIAÇÃO — o resumo será substituído, não somado)' : ''));
 
     // ---------- 0) BASES DE APOIO (arquivo novo ou base guardada) ----------
     const baseCusto      = await obterBase('custo',      state.custoFile,      parseBaseCusto,      'Base_Custo');
@@ -2260,19 +2268,23 @@ async function processar(){
     // O resumo do ciclo não pode depender só dos arquivos selecionados agora — senão processar
     // um único dia sobrescreve o total do ciclo inteiro (foi o que causou a queda de saldo do
     // dia 24/08). Por isso buscamos o que já está publicado e SOMAMOS com o lote de agora.
-    log('Consultando o que já está acumulado deste ciclo no Supabase...');
     let diarioAcumulado = [];
     let resumoAnterior = null;
     let locaisJaContados = new Set();
-    try{
-      diarioAcumulado = await sb('ciclos_diario?ciclo_id=eq.' + encodeURIComponent(cicloId) + '&select=data,itens_contados_dia,bipagens_dia');
-      const resumoResp = await sb('ciclos_resumo?ciclo_id=eq.' + encodeURIComponent(cicloId) + '&select=*');
-      resumoAnterior = (resumoResp && resumoResp[0]) || null;
-      const enderecosResp = await sbAll('enderecos_contados_ciclo?ciclo_id=eq.' + encodeURIComponent(cicloId) + '&select=local');
-      locaisJaContados = new Set(enderecosResp.map(r => r.local));
-      log('↺ Acumulado encontrado: ' + diarioAcumulado.length + ' dia(s) e ' + locaisJaContados.size.toLocaleString('pt-BR') + ' endereço(s) já contados antes deste lote.');
-    }catch(e){
-      log('⚠ Não consegui consultar o acumulado do ciclo no Supabase (' + e.message + ') — o resumo será calculado só com os arquivos desta sessão, como antes.', 'warn');
+    if(modoReconciliacao){
+      log('Modo Reconciliação ativo: ignorando o acumulado publicado — o resumo será recalculado do zero só com os arquivos selecionados agora.', 'warn');
+    } else {
+      log('Consultando o que já está acumulado deste ciclo no Supabase...');
+      try{
+        diarioAcumulado = await sb('ciclos_diario?ciclo_id=eq.' + encodeURIComponent(cicloId) + '&select=data,itens_contados_dia,bipagens_dia');
+        const resumoResp = await sb('ciclos_resumo?ciclo_id=eq.' + encodeURIComponent(cicloId) + '&select=*');
+        resumoAnterior = (resumoResp && resumoResp[0]) || null;
+        const enderecosResp = await sbAll('enderecos_contados_ciclo?ciclo_id=eq.' + encodeURIComponent(cicloId) + '&select=local');
+        locaisJaContados = new Set(enderecosResp.map(r => r.local));
+        log('↺ Acumulado encontrado: ' + diarioAcumulado.length + ' dia(s) e ' + locaisJaContados.size.toLocaleString('pt-BR') + ' endereço(s) já contados antes deste lote.');
+      }catch(e){
+        log('⚠ Não consegui consultar o acumulado do ciclo no Supabase (' + e.message + ') — o resumo será calculado só com os arquivos desta sessão, como antes.', 'warn');
+      }
     }
 
     // ---------- 1) BIPAGENS ----------
