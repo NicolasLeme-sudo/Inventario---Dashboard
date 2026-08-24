@@ -623,11 +623,12 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
       </div>
       <div class="grid" style="margin-top:16px; padding-top:16px; border-top:1px dashed var(--card-border);">
         <div class="field">
-          <label>Setor de hoje</label>
+          <label>Setor em contagem</label>
           <select id="cfgSetorDia">
             <option value="Calçados">Calçados</option>
             <option value="Vestuário">Vestuário</option>
           </select>
+          <div class="hint" id="setorLembradoHint" style="margin-top:6px;"></div>
         </div>
         <div class="field">
           <label>Headcount de hoje</label>
@@ -638,7 +639,7 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
           <input type="text" id="cfgMetaDiaCalculada" readonly style="font-weight:700; color:var(--accent-gold);">
         </div>
       </div>
-      <div class="hint" style="margin-top:10px;">Esse headcount/setor vale para todos os dias que forem processados agora (seção 4). Se o Headcount de hoje vier vazio, ele usa o Headcount Padrão sozinho.</div>
+      <div class="hint" style="margin-top:10px;">O setor fica fixado — só troque quando a operação realmente mudar de setor. Já o headcount é do dia; se deixar vazio, usa o Headcount Padrão. Ambos valem para os dias processados agora (seção 4).</div>
     </div>
 
     <div class="card">
@@ -1543,6 +1544,34 @@ async function inicializarDashboard(){
 /* ================= REIDRATA A ABA DE ABASTECIMENTO ================= */
 // Puxa do ciclo já publicado os valores editáveis, pra quem abrir a tela ver o que está valendo
 // hoje em vez dos defaults do HTML.
+/* O setor não muda de um dia pro outro (a operação varre um setor inteiro por vez), então
+   ele vira preferência fixa: escolhido uma vez, volta sozinho nos próximos acessos.
+   Semente inicial = o setor do último ciclo publicado; depois disso vale a escolha local. */
+const PREF_SETOR = 'inventario_setor_padrao';
+function lembrarSetor(){
+  const v = document.getElementById('cfgSetorDia').value;
+  try{ localStorage.setItem(PREF_SETOR, v); }catch(e){}
+  marcarSetorLembrado(v);
+}
+function marcarSetorLembrado(valor){
+  const el = document.getElementById('setorLembradoHint');
+  if(el) el.textContent = valor ? 'Fixado em "' + valor + '" — vai vir assim toda vez até você trocar aqui.' : '';
+}
+function aplicarSetorPreferido(setorDoUltimoCiclo){
+  let escolhido = null;
+  try{ escolhido = localStorage.getItem(PREF_SETOR); }catch(e){}
+  if(!escolhido && setorDoUltimoCiclo) escolhido = setorDoUltimoCiclo;  // semente
+  if(!escolhido) return;
+  const sel = document.getElementById('cfgSetorDia');
+  const existe = [...sel.options].some(o => o.value === escolhido);
+  if(existe){
+    sel.value = escolhido;
+    try{ localStorage.setItem(PREF_SETOR, escolhido); }catch(e){}
+    marcarSetorLembrado(escolhido);
+    calcularMetaDia();
+  }
+}
+
 function preencherCamposDoCiclo(r){
   const setSeTiver = (id, valor) => {
     if(valor !== null && valor !== undefined && valor !== '') document.getElementById(id).value = valor;
@@ -1559,6 +1588,7 @@ function preencherCamposDoCiclo(r){
   setSeTiver('cfgDataInicio', r.data_inicio_ciclo);
   setSeTiver('cfgLocalCiclo', r.local_ciclo);
   setSeTiver('cfgMotivoEstoque', r.motivo_atualizacao_estoque);
+  aplicarSetorPreferido(r.meta_dia_config && r.meta_dia_config.setor);
 
   const el = document.getElementById('estoqueUltimaAtualizacao');
   el.textContent = r.estoque_atualizado_em
@@ -1617,6 +1647,7 @@ function calcularMetaDia(){
 }
 ['cfgSetorDia','cfgHeadcountDia','cfgHeadcountPadrao','cfgProdutividadeCalcados','cfgProdutividadeVestuario']
   .forEach(id => document.getElementById(id).addEventListener('input', calcularMetaDia));
+document.getElementById('cfgSetorDia').addEventListener('change', lembrarSetor);
 
 /* ================= LOG DE ABASTECIMENTO (último arquivo por campo) ================= */
 const CAMPOS_ABASTECIMENTO = ['bipagens','diferenca','foto','embalagem','enderecos','custo'];
@@ -2465,6 +2496,9 @@ document.getElementById('authForm').addEventListener('submit', entrar);
 applyLogo();
 document.getElementById('authLogo').src = LOGO_DATA.favicon;
 document.getElementById('faviconLink').href = LOGO_DATA.favicon;
+// Preferências locais não dependem de login nem do Supabase — aplicam já na abertura.
+aplicarSetorPreferido(null);
+calcularMetaDia();
 
 async function iniciarApp(){
   atualizarStatusBases();
