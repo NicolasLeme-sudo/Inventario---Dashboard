@@ -439,7 +439,7 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
     <section>
       <div class="section-title" style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
         <span>Indicadores Gerais — Endereços</span>
-        <button class="btn secondary" id="btnEndPendentesGeral" style="display:none; text-transform:none; letter-spacing:normal;" onclick="exportarEnderecosPendentesGeral()">⬇ Endereços pendentes</button>
+        <button class="btn-export" id="btnEndPendentesGeral" style="display:none; text-transform:none; letter-spacing:normal;" onclick="exportarEnderecosPendentesGeral()">⬇ Exportar endereços pendentes</button>
       </div>
       <div class="kpi-row" id="kpi-row-enderecos"></div>
     </section>
@@ -1816,7 +1816,7 @@ async function atualizarEnderecosPendentesGeral(){
       return;
     }
     btn.style.display = 'inline-block';
-    btn.textContent = '⬇ Endereços pendentes (' + enderecosPendentesGeral.length.toLocaleString('pt-BR') + ')';
+    btn.textContent = '⬇ Exportar endereços pendentes (' + enderecosPendentesGeral.length.toLocaleString('pt-BR') + ')';
   }catch(e){
     console.warn('Não foi possível calcular endereços pendentes:', e);
     btn.style.display = 'none';
@@ -2373,7 +2373,7 @@ async function processar(){
     // dia 24/08). Por isso buscamos o que já está publicado e SOMAMOS com o lote de agora.
     let diarioAcumulado = [];
     let resumoAnterior = null;
-    let locaisJaContados = new Set();
+    let contagemPorLocalAcumulada = new Map(); // local -> { inventario, estoque }
     if(modoReconciliacao){
       log('Modo Reconciliação ativo: ignorando o acumulado publicado — o resumo será recalculado do zero só com os arquivos selecionados agora.', 'warn');
     } else {
@@ -2382,9 +2382,11 @@ async function processar(){
         diarioAcumulado = await sb('ciclos_diario?ciclo_id=eq.' + encodeURIComponent(cicloId) + '&select=data,itens_contados_dia,bipagens_dia');
         const resumoResp = await sb('ciclos_resumo?ciclo_id=eq.' + encodeURIComponent(cicloId) + '&select=*');
         resumoAnterior = (resumoResp && resumoResp[0]) || null;
-        const enderecosResp = await sbAll('enderecos_contados_ciclo?ciclo_id=eq.' + encodeURIComponent(cicloId) + '&select=local');
-        locaisJaContados = new Set(enderecosResp.map(r => r.local));
-        log('↺ Acumulado encontrado: ' + diarioAcumulado.length + ' dia(s) e ' + locaisJaContados.size.toLocaleString('pt-BR') + ' endereço(s) já contados antes deste lote.');
+        const enderecosResp = await sbAll('enderecos_contados_ciclo?ciclo_id=eq.' + encodeURIComponent(cicloId) + '&select=local,qtde_inventario,qtde_estoque');
+        enderecosResp.forEach(r => contagemPorLocalAcumulada.set(r.local, {
+          inventario: Number(r.qtde_inventario) || 0, estoque: Number(r.qtde_estoque) || 0
+        }));
+        log('↺ Acumulado encontrado: ' + diarioAcumulado.length + ' dia(s) e ' + contagemPorLocalAcumulada.size.toLocaleString('pt-BR') + ' endereço(s) já contados antes deste lote.');
       }catch(e){
         log('⚠ Não consegui consultar o acumulado do ciclo no Supabase (' + e.message + ') — o resumo será calculado só com os arquivos desta sessão, como antes.', 'warn');
       }
@@ -2505,16 +2507,35 @@ async function processar(){
       });
     }
     const diasTrabalhados = diarioMerge.size;
-    let itensContadosTotal = 0, bipagensTotal = 0;
-    for(const v of diarioMerge.values()){ itensContadosTotal += v.itens_contados_dia; bipagensTotal += v.bipagens_dia; }
+    let bipagensTotal = 0;
+    for(const v of diarioMerge.values()){ bipagensTotal += v.bipagens_dia; }
+
+    // ---------- 2.2) CONSOLIDAÇÃO POR ENDEREÇO ----------
+    // "Itens Contados" NÃO é a soma dos lotes: se a mesma rua for contada de novo (recontagem,
+    // ou um arquivo antigo reenviado depois), somar contaria o mesmo estoque duas vezes — foi
+    // o que levou o ciclo a marcar 120% do estoque. Aqui cada endereço guarda apenas a sua
+    // contagem mais recente, e o total do ciclo é a soma dessas contagens por endereço.
+    const contagemPorLocal = new Map(contagemPorLocalAcumulada);
+    let locaisRecontados = 0, deltaRecontagem = 0;
+    for(const [local, somas] of Object.entries(somaPorLocal)){
+      const anterior = contagemPorLocal.get(local);
+      if(anterior){
+        locaisRecontados++;
+        deltaRecontagem += somas.inventario - anterior.inventario;
+      }
+      contagemPorLocal.set(local, { inventario: somas.inventario, estoque: somas.estoque });
+    }
+    const locaisContadosAcumulado = new Set(contagemPorLocal.keys());
+    let itensContadosTotal = 0;
+    for(const v of contagemPorLocal.values()) itensContadosTotal += v.inventario;
+    if(locaisRecontados > 0){
+      log('ℹ ' + locaisRecontados.toLocaleString('pt-BR') + ' endereço(s) deste lote já tinham contagem no ciclo — o valor novo substituiu o anterior (efeito líquido: ' +
+          (deltaRecontagem >= 0 ? '+' : '') + deltaRecontagem.toLocaleString('pt-BR') + ' itens), em vez de somar em cima.', 'warn');
+    }
+
     const mediaBipesDia = diasTrabalhados ? bipagensTotal / diasTrabalhados : 0;
     const mediaPecasDia = diasTrabalhados ? itensContadosTotal / diasTrabalhados : 0;
     const curvaReal = itensContadosTotal ? bipagensTotal / itensContadosTotal : 0;
-
-    // Endereços: união dos locais já contados antes com os deste lote — recontagem do mesmo
-    // endereço em outro arquivo não infla o total (cada local só conta uma vez).
-    const locaisContadosAcumulado = new Set(locaisJaContados);
-    for(const l of locaisContados) locaisContadosAcumulado.add(l);
 
     // Balanço / ganhos / perdas / segmentação: somam com o resumo publicado anteriormente.
     const numAnterior = (campo) => resumoAnterior ? (Number(resumoAnterior[campo]) || 0) : 0;
@@ -2541,29 +2562,24 @@ async function processar(){
     const estoquePorBloco = baseFoto.dados.estoquePorBloco; // bloco -> soma QTD ESTOQUE
     log('Itens em Estoque (total): ' + itensEmEstoqueTotal.toLocaleString('pt-BR'), 'ok');
 
-    // ---------- 4) BASE EMBALAGEM (De-Para Segmento) ----------
-    const skuParaSegmento2 = baseEmbalagem.dados.skuParaSegmento;
-    let itensContadosCalcados = 0, itensContadosVestuario = 0, itensNaoMapeados = 0, itensPorNome = 0;
-    for(const [sku, qtde] of Object.entries(somaQtdePorSKU)){
-      let seg = skuParaSegmento2[sku];
-      if(!seg){
-        const segNome = segmentoPorNome(nomePorSKU[sku]);
-        if(segNome){ seg = segNome; itensPorNome += qtde; }
-      }
-      if(seg === 'Calçados') itensContadosCalcados += qtde;
-      else if(seg === 'Vestuários') itensContadosVestuario += qtde;
-      else itensNaoMapeados += qtde;
-    }
-    const itensContadosCalcadosAcum = numAnterior('itens_contados_calcados') + itensContadosCalcados;
-    const itensContadosVestuarioAcum = numAnterior('itens_contados_vestuario') + itensContadosVestuario;
-    log('Itens Contados Calçados (acumulado): ' + itensContadosCalcadosAcum.toLocaleString('pt-BR'), 'ok');
-    log('Itens Contados Vestuário (acumulado): ' + itensContadosVestuarioAcum.toLocaleString('pt-BR'), 'ok');
-    if(itensPorNome > 0) log('ℹ ' + itensPorNome.toLocaleString('pt-BR') + ' itens classificados pelo nome do produto (SKU não estava na Base_Embalagem)', 'warn');
-    if(itensNaoMapeados > 0) log('⚠ ' + itensNaoMapeados.toLocaleString('pt-BR') + ' itens contados não bateram com nenhum SKU da Base_Embalagem nem com palavras-chave do nome (ficam de fora da % por segmento)', 'warn');
-
     // ---------- 5) BASE DE ENDEREÇOS (dBase_Endereços + Validado) ----------
     const enderecosUnicos = new Map(); // local -> {bloco, setor, regiao, linha}
     baseEnderecos.dados.enderecos.forEach(e => enderecosUnicos.set(e.local, e));
+
+    // ---------- 4) SEGMENTAÇÃO DOS ITENS CONTADOS ----------
+    // Derivada da consolidação por endereço (o bloco do endereço define o setor), e não da
+    // soma dos lotes por SKU: assim uma rua recontada não soma duas vezes no segmento dela.
+    let itensContadosCalcadosAcum = 0, itensContadosVestuarioAcum = 0, itensSemSetorAcum = 0;
+    for(const [local, v] of contagemPorLocal.entries()){
+      const seg = setorDoEndereco(enderecosUnicos.get(local));
+      if(seg === 'Calçados') itensContadosCalcadosAcum += v.inventario;
+      else if(seg === 'Vestuário') itensContadosVestuarioAcum += v.inventario;
+      else itensSemSetorAcum += v.inventario;
+    }
+    log('Itens Contados Calçados (acumulado): ' + itensContadosCalcadosAcum.toLocaleString('pt-BR'), 'ok');
+    log('Itens Contados Vestuário (acumulado): ' + itensContadosVestuarioAcum.toLocaleString('pt-BR'), 'ok');
+    if(itensSemSetorAcum > 0) log('⚠ ' + itensSemSetorAcum.toLocaleString('pt-BR') + ' itens contados estão em endereços sem setor definido (ficam de fora da % por segmento)', 'warn');
+
     const enderecosEmEstoqueTotal = enderecosUnicos.size;
     let enderecosContadosTotal = 0, enderecosPendentesTotal = 0;
     let enderecosEstoqueCalcados = 0, enderecosContadosCalcados = 0;
@@ -2615,16 +2631,18 @@ async function processar(){
     }
 
     // ---------- 8) POR BLOCO / SETOR ----------
+    // Também sai da consolidação por endereço (ciclo inteiro), não só do lote atual: antes,
+    // o upsert por bloco sobrescrevia o bloco com o valor do último lote e zerava os blocos
+    // que não vinham nele — por isso E, F e G apareciam como "Pendente" depois de contados.
     const blocos = new Set([...Object.keys(estoquePorBloco)]);
-    for(const local of locaisContados){
-      const info = enderecosUnicos.get(local);
-      if(info && info.bloco) blocos.add(info.bloco);
-    }
     const inventarioPorBloco = {};
-    for(const [local, somas] of Object.entries(somaPorLocal)){
+    for(const [local, v] of contagemPorLocal.entries()){
       const info = enderecosUnicos.get(local);
       const bloco = info ? info.bloco : null;
-      if(bloco){ inventarioPorBloco[bloco] = (inventarioPorBloco[bloco] || 0) + somas.inventario; }
+      if(bloco){
+        blocos.add(bloco);
+        inventarioPorBloco[bloco] = (inventarioPorBloco[bloco] || 0) + v.inventario;
+      }
     }
     const regiaoBlocoDetalhe = [];
     for(const bloco of blocos){
@@ -2684,14 +2702,21 @@ async function processar(){
         diferenca: g.diferenca, valor_diferenca: g.valorVariacao
       })),
       regiaoBloco: regiaoBlocoDetalhe.map(r=>({ ciclo_id: cicloId, piso:null, ...r })),
+      // Leva a quantidade contada de cada endereço, não só a marcação de "contado": no envio
+      // é upsert por (ciclo_id, local), então uma recontagem SUBSTITUI o valor anterior daquele
+      // endereço em vez de somar — é isso que impede a dupla contagem de itens.
       enderecosNovosContados: [...locaisContados].map(local => {
         const info = enderecosUnicos.get(local);
-        return { ciclo_id: cicloId, local, bloco: info ? (info.bloco || null) : null, setor: info ? setorDoEndereco(info) : null };
+        const somas = somaPorLocal[local] || { estoque:0, inventario:0 };
+        return { ciclo_id: cicloId, local, bloco: info ? (info.bloco || null) : null,
+          setor: info ? setorDoEndereco(info) : null,
+          qtde_inventario: somas.inventario, qtde_estoque: somas.estoque };
       }),
       arquivosProcessadosAgora: [
         ...state.bipagensFiles.map(f => ({ ciclo_id: cicloId, tipo: 'bipagens', nome_arquivo: f.name })),
         ...state.diferencaFiles.map(f => ({ ciclo_id: cicloId, tipo: 'diferenca', nome_arquivo: f.name }))
       ],
+      reconciliacao: modoReconciliacao,
       // Publica a base de endereços inteira (não só os pendentes) para a Visão Geral
       // conseguir calcular "Endereços Pendentes" sem depender do processamento local.
       baseEnderecos: [...enderecosUnicos.entries()].map(([local, info]) => ({
@@ -2810,6 +2835,19 @@ async function enviarSupabase(){
   const cicloId = state.resultado.resumo.ciclo_id;
 
   try{
+    // Em Modo Reconciliação o lote representa o ciclo inteiro, então o estado antigo por
+    // endereço/dia/ganho-perda precisa sair antes — senão restaria contagem velha (ou zerada)
+    // convivendo com a reconstruída, e os totais voltariam a não fechar.
+    if(state.resultado.reconciliacao){
+      log('Modo Reconciliação: limpando o estado anterior deste ciclo antes de reconstruir...', 'warn');
+      const filtro = 'ciclo_id=eq.' + encodeURIComponent(cicloId);
+      await supabaseRequest('enderecos_contados_ciclo?' + filtro, 'DELETE');
+      await supabaseRequest('ganhos_perdas_detalhe?' + filtro, 'DELETE');
+      await supabaseRequest('ciclos_diario?' + filtro, 'DELETE');
+      await supabaseRequest('arquivos_processados?' + filtro, 'DELETE');
+      log('✔ Estado anterior do ciclo limpo', 'ok');
+    }
+
     log('Enviando ciclos_resumo (upsert)...');
     await supabaseRequest('ciclos_resumo', 'POST', state.resultado.resumo, { 'Prefer':'resolution=merge-duplicates' });
     log('✔ ciclos_resumo OK', 'ok');
@@ -2840,13 +2878,15 @@ async function enviarSupabase(){
     }
     log('✔ regiao_bloco_detalhe OK (' + state.resultado.regiaoBloco.length + ' blocos)', 'ok');
 
-    // enderecos_contados_ciclo: um registro por local — ignora conflito (o mesmo endereço
-    // recontado em outro arquivo não gera linha nova nem infla "Endereços Contados").
+    // enderecos_contados_ciclo: um registro por local, com a quantidade contada. Usa
+    // merge-duplicates de propósito: se o endereço for recontado, o valor novo SUBSTITUI o
+    // anterior daquele endereço — é o que impede a mesma rua de ser somada duas vezes em
+    // "Itens Contados" (causa da leitura de 120% no ciclo 2026-S35).
     if(state.resultado.enderecosNovosContados.length){
       log('Registrando endereços contados (' + state.resultado.enderecosNovosContados.length + ' deste lote)...');
       for(let i=0;i<state.resultado.enderecosNovosContados.length;i+=500){
         await supabaseRequest('enderecos_contados_ciclo?on_conflict=ciclo_id,local', 'POST',
-          state.resultado.enderecosNovosContados.slice(i,i+500), { 'Prefer':'resolution=ignore-duplicates' });
+          state.resultado.enderecosNovosContados.slice(i,i+500), { 'Prefer':'resolution=merge-duplicates' });
       }
       log('✔ enderecos_contados_ciclo OK', 'ok');
     }
