@@ -225,6 +225,7 @@ tbody tr.pendente td{color:var(--text-secondary); font-style:italic;}
 .status-pill.validado{background:rgba(69,198,69,.15); color:var(--positive);}
 .status-pill.pendente{background:rgba(147,165,184,.2); color:var(--text-secondary);}
 .status-pill.atraso{background:rgba(200,16,46,.15); color:var(--negative);}
+.status-pill.andamento{background:rgba(255,184,0,.15); color:var(--accent-gold);}
 
 /* ===== Previsão de Prazo (Visão Geral) ===== */
 .prazo-row{display:grid; grid-template-columns:repeat(2,1fr); gap:16px;}
@@ -820,12 +821,14 @@ function formatPct(v){ return v.toFixed(2).replace('.', ',') + '%'; }
 function twoToneDonutSVG(pctPrimary, color1, color2, size){
   size = size || 150;
   // O arco é limitado a 0–100: acima de 100% ele daria a volta completa e o donut ficaria
-  // idêntico a um ciclo concluído, escondendo justamente a inconsistência. Fora da faixa,
-  // o anel é pintado na cor de alerta para o número (que segue mostrando o valor real)
-  // não passar despercebido.
+  // idêntico a um ciclo em que faltasse contar, então o teto deixa o anel cheio e a
+  // porcentagem exibida ao lado segue mostrando o valor real.
+  // Passar de 100% é contar mais itens do que a foto de estoque previa (ganho de saldo),
+  // então o anel fica verde; só valor negativo é pintado como alerta.
   const arco = Math.max(0, Math.min(100, Number(pctPrimary) || 0));
-  const foraDaFaixa = pctPrimary > 100.01 || pctPrimary < 0;
-  const cor = foraDaFaixa ? 'var(--negative)' : color1;
+  const cor = pctPrimary > 100.01 ? 'var(--positive)'
+            : pctPrimary < 0 ? 'var(--negative)'
+            : color1;
   return `<svg width="${size}" height="${size}" viewBox="0 0 42 42">
     <circle cx="21" cy="21" r="15.9" fill="transparent" stroke="${color2}" stroke-width="6"></circle>
     <circle cx="21" cy="21" r="15.9" fill="transparent" stroke="${cor}" stroke-width="6"
@@ -1555,12 +1558,18 @@ function filtrarRegiao(){
     const colunaDiff = validado
       ? `<td class="${diff < 0 ? 'val-neg' : diff > 0 ? 'val-pos' : ''}">${diff.toLocaleString('pt-BR')}</td>`
       : `<td class="hint">a contar</td>`;
+    // "Validado" só quando não sobrou nenhum endereço por contar no bloco; com contagem
+    // iniciada mas endereços pendentes, o bloco está em andamento (amarelo).
+    const faltamEnderecos = (pendentesPorBloco[r.bloco] || 0) > 0;
+    const st = !validado ? { classe:'pendente', texto:'Pendente' }
+             : (baseEnderecosCarregada && faltamEnderecos) ? { classe:'andamento', texto:'Em andamento' }
+             : { classe:'validado', texto:'Validado' };
     return `<tr class="${validado ? '' : 'pendente'}">
       <td>${r.bloco}</td>
       <td>${r.estoque.toLocaleString('pt-BR')}</td>
       <td>${r.inventario.toLocaleString('pt-BR')}</td>
       ${colunaDiff}
-      <td><span class="status-pill ${validado ? 'validado' : 'pendente'}">${validado ? 'Validado' : 'Pendente'}</span></td>
+      <td><span class="status-pill ${st.classe}">${st.texto}</span></td>
     </tr>`;
   }).join('');
 
@@ -1573,13 +1582,19 @@ function filtrarRegiao(){
   });
   document.getElementById('regiao-setor-tbody').innerHTML = Object.entries(setores).map(([nome, s])=>{
     const pct = s.estoque > 0 ? (s.inventario / s.estoque * 100) : 0;
-    const validado = s.inventario > 0;
-    return `<tr class="${validado ? '' : 'pendente'}">
+    const iniciado = s.inventario > 0;
+    // Mesmo critério dos blocos: o setor só fecha quando nenhum dos seus blocos tem
+    // endereço pendente.
+    const faltamEnderecos = s.blocos.some(b => (pendentesPorBloco[b] || 0) > 0);
+    const st = !iniciado ? { classe:'pendente', texto:'Pendente' }
+             : (!baseEnderecosCarregada || faltamEnderecos) ? { classe:'andamento', texto:'Em andamento' }
+             : { classe:'validado', texto:'Concluído' };
+    return `<tr class="${iniciado ? '' : 'pendente'}">
       <td>${nome}</td><td>${s.blocos.join(', ')}</td>
       <td>${s.estoque.toLocaleString('pt-BR')}</td>
       <td>${s.inventario.toLocaleString('pt-BR')}</td>
       <td>${formatPct(pct)}</td>
-      <td><span class="status-pill ${validado ? 'validado' : 'pendente'}">${validado ? 'Em andamento' : 'Pendente'}</span></td>
+      <td><span class="status-pill ${st.classe}">${st.texto}</span></td>
     </tr>`;
   }).join('');
 }
@@ -1813,6 +1828,8 @@ async function inicializarDashboard(){
    enderecos_contados_ciclo) — assim funciona em qualquer navegador, sem precisar reprocessar
    nada localmente para ver quais endereços ainda faltam contar no ciclo atual. */
 let enderecosPendentesGeral = [];
+let pendentesPorBloco = {};      // bloco -> nº de endereços ainda não contados
+let baseEnderecosCarregada = false;
 async function atualizarEnderecosPendentesGeral(){
   const btn = document.getElementById('btnEndPendentesGeral');
   if(!cicloAtualId){ btn.style.display = 'none'; return; }
@@ -1823,6 +1840,16 @@ async function atualizarEnderecosPendentesGeral(){
     ]);
     const contadosSet = new Set(contados.map(r => r.local));
     enderecosPendentesGeral = base.filter(e => !contadosSet.has(e.local));
+    // Quantos endereços ainda faltam em cada bloco: é o que distingue um bloco realmente
+    // concluído de um que só teve parte das ruas contadas (o bloco G aparecia como
+    // "Validado" com 18.445 de 66.585 itens).
+    pendentesPorBloco = {};
+    enderecosPendentesGeral.forEach(e => {
+      const b = e.bloco || '(sem bloco)';
+      pendentesPorBloco[b] = (pendentesPorBloco[b] || 0) + 1;
+    });
+    baseEnderecosCarregada = base.length > 0;
+    filtrarRegiao(); // reavalia os status agora que sabemos o que falta por bloco
     if(!base.length){
       btn.style.display = 'none';
       return;
