@@ -749,7 +749,7 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
       <div style="margin-top:12px; padding:12px; border-radius:8px; border:1px solid var(--card-border); background:rgba(255,255,255,0.03);">
         <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer;">
           <input type="checkbox" id="chkModoReconciliacao">
-          <b>Modo Reconciliação</b> — este lote é a base COMPLETA do ciclo (todos os arquivos de Bipagens e Diferença desde o início), e deve <b>substituir</b> o resumo publicado em vez de somar a ele.
+          <b>Modo Reconciliação</b> — este lote é a base COMPLETA do ciclo (todos os arquivos de Bipagens e Diferença desde o início), e deve <b>substituir</b> o que já foi publicado (resumo, detalhe de ganhos/perdas e endereços contados do ciclo) em vez de somar a ele.
         </label>
         <div class="hint" style="margin-top:6px;">Use só para corrigir um resumo que ficou incorreto (ex.: quando um processamento anterior sobrescreveu o total do ciclo). Nesse modo a trava de arquivo duplicado é ignorada e o resumo é recalculado do zero com o que estiver selecionado agora — por isso é essencial selecionar TODOS os arquivos do ciclo, não só os mais recentes.</div>
       </div>
@@ -2748,6 +2748,7 @@ async function processar(){
           setor: info ? setorDoEndereco(info) : null,
           qtde_inventario: somas.inventario, qtde_estoque: somas.estoque };
       }),
+      modoReconciliacao,
       arquivosProcessadosAgora: [
         ...state.bipagensFiles.map(f => ({ ciclo_id: cicloId, tipo: 'bipagens', nome_arquivo: f.name })),
         ...state.diferencaFiles.map(f => ({ ciclo_id: cicloId, tipo: 'diferenca', nome_arquivo: f.name }))
@@ -2897,14 +2898,21 @@ async function enviarSupabase(){
 
     // ganhos_perdas_detalhe: cada arquivo cobre 1 inventário (normalmente 1 rua) — ACRESCENTA
     // ao ciclo em vez de apagar tudo, pra não perder o histórico das ruas já processadas antes.
-    log('Enviando ganhos_perdas_detalhe (acrescentando ao ciclo, sem apagar o que já tinha)...');
+    // Exceção: em Modo Reconciliação o lote é o ciclo inteiro, então acrescentar duplicaria
+    // todo o detalhe já publicado — nesse caso o detalhe do ciclo é substituído.
+    if(state.resultado.modoReconciliacao){
+      log('Modo Reconciliação: apagando o detalhe de ganhos/perdas já publicado deste ciclo antes de regravar...', 'warn');
+      await supabaseRequest('ganhos_perdas_detalhe?ciclo_id=eq.' + encodeURIComponent(cicloId), 'DELETE');
+      log('✔ Detalhe anterior removido', 'ok');
+    }
+    log('Enviando ganhos_perdas_detalhe' + (state.resultado.modoReconciliacao ? ' (regravando o ciclo inteiro)' : ' (acrescentando ao ciclo, sem apagar o que já tinha)') + '...');
     if(state.resultado.ganhosPerdas.length){
       // envia em lotes de 500 para não estourar o payload
       for(let i=0;i<state.resultado.ganhosPerdas.length;i+=500){
         await supabaseRequest('ganhos_perdas_detalhe', 'POST', state.resultado.ganhosPerdas.slice(i,i+500));
       }
     }
-    log('✔ ganhos_perdas_detalhe OK (' + state.resultado.ganhosPerdas.length + ' linhas novas)', 'ok');
+    log('✔ ganhos_perdas_detalhe OK (' + state.resultado.ganhosPerdas.length + ' linhas)', 'ok');
 
     // regiao_bloco_detalhe: upsert por (ciclo_id, bloco) — atualiza só os blocos que entraram
     // nesse processamento, mantém intactos os blocos de ruas já enviadas antes.
@@ -2918,6 +2926,10 @@ async function enviarSupabase(){
     // merge-duplicates de propósito: se o endereço for recontado, o valor novo SUBSTITUI o
     // anterior daquele endereço — é o que impede a mesma rua de ser somada duas vezes em
     // "Itens Contados" (causa da leitura de 120% no ciclo 2026-S35).
+    if(state.resultado.modoReconciliacao){
+      log('Modo Reconciliação: apagando os endereços contados registrados deste ciclo antes de regravar...', 'warn');
+      await supabaseRequest('enderecos_contados_ciclo?ciclo_id=eq.' + encodeURIComponent(cicloId), 'DELETE');
+    }
     if(state.resultado.enderecosNovosContados.length){
       log('Registrando endereços contados (' + state.resultado.enderecosNovosContados.length + ' deste lote)...');
       for(let i=0;i<state.resultado.enderecosNovosContados.length;i+=500){
