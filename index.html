@@ -686,10 +686,11 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
     </div>
 
     <div class="card">
-      <h2>3. Estoque por Segmento (tabela manual — dEstoque_Segmento)</h2>
+      <h2>3. Estoque por Segmento</h2>
+      <div class="hint" style="margin-bottom:10px;">Calculado automaticamente pela Foto de Estoque (blocos A, B, C = Calçados · E, F, G = Vestuário) a cada processamento — garante que a soma dos dois segmentos feche com o total de itens em estoque.</div>
       <div class="grid">
-        <div class="field"><label>Saldo em Estoque — Calçados</label><input type="number" id="cfgEstoqueCalcados" value="637058"></div>
-        <div class="field"><label>Saldo em Estoque — Vestuário</label><input type="number" id="cfgEstoqueVestuario" value="306230"></div>
+        <div class="field"><label>Saldo em Estoque — Calçados</label><input type="number" id="cfgEstoqueCalcados" value="637058" readonly></div>
+        <div class="field"><label>Saldo em Estoque — Vestuário</label><input type="number" id="cfgEstoqueVestuario" value="229151" readonly></div>
         <div class="field"><label>Local / CD do ciclo</label><input type="text" id="cfgLocalCiclo" placeholder="ex: Extrema"></div>
         <div class="field"><label>Motivo da atualização</label><input type="text" id="cfgMotivoEstoque" placeholder="ex: novo recebimento, correção de saldo..."></div>
       </div>
@@ -818,11 +819,17 @@ function formatPct(v){ return v.toFixed(2).replace('.', ',') + '%'; }
 // donut de duas cores: arco principal (cor1) + arco complementar (cor2)
 function twoToneDonutSVG(pctPrimary, color1, color2, size){
   size = size || 150;
-  const rest = (100 - pctPrimary).toFixed(2);
+  // O arco é limitado a 0–100: acima de 100% ele daria a volta completa e o donut ficaria
+  // idêntico a um ciclo concluído, escondendo justamente a inconsistência. Fora da faixa,
+  // o anel é pintado na cor de alerta para o número (que segue mostrando o valor real)
+  // não passar despercebido.
+  const arco = Math.max(0, Math.min(100, Number(pctPrimary) || 0));
+  const foraDaFaixa = pctPrimary > 100.01 || pctPrimary < 0;
+  const cor = foraDaFaixa ? 'var(--negative)' : color1;
   return `<svg width="${size}" height="${size}" viewBox="0 0 42 42">
     <circle cx="21" cy="21" r="15.9" fill="transparent" stroke="${color2}" stroke-width="6"></circle>
-    <circle cx="21" cy="21" r="15.9" fill="transparent" stroke="${color1}" stroke-width="6"
-      stroke-dasharray="${pctPrimary.toFixed(2)} 100" transform="rotate(-90 21 21)"></circle>
+    <circle cx="21" cy="21" r="15.9" fill="transparent" stroke="${cor}" stroke-width="6"
+      stroke-dasharray="${arco.toFixed(2)} 100" transform="rotate(-90 21 21)"></circle>
   </svg>`;
 }
 
@@ -1543,11 +1550,16 @@ function filtrarRegiao(){
   document.getElementById('regiao-bloco-tbody').innerHTML = linhas.map(r=>{
     const diff = r.inventario - r.estoque;
     const validado = r.status === 'Validado';
+    // Em bloco ainda não contado, "inventário - estoque" seria o estoque inteiro negativo e
+    // lê-se como perda gigante, quando na verdade é contagem que ainda não aconteceu.
+    const colunaDiff = validado
+      ? `<td class="${diff < 0 ? 'val-neg' : diff > 0 ? 'val-pos' : ''}">${diff.toLocaleString('pt-BR')}</td>`
+      : `<td class="hint">a contar</td>`;
     return `<tr class="${validado ? '' : 'pendente'}">
       <td>${r.bloco}</td>
       <td>${r.estoque.toLocaleString('pt-BR')}</td>
       <td>${r.inventario.toLocaleString('pt-BR')}</td>
-      <td class="${diff < 0 ? 'val-neg' : diff > 0 ? 'val-pos' : ''}">${diff.toLocaleString('pt-BR')}</td>
+      ${colunaDiff}
       <td><span class="status-pill ${validado ? 'validado' : 'pendente'}">${validado ? 'Validado' : 'Pendente'}</span></td>
     </tr>`;
   }).join('');
@@ -2357,8 +2369,8 @@ async function processar(){
     const anoCiclo = cicloAuto.ano;
     const prazoEstipulado = document.getElementById('cfgPrazoEstipulado').value;
     const curvaEstipulada = Number(document.getElementById('cfgCurvaEstipulada').value);
-    const estoqueCalcados = Number(document.getElementById('cfgEstoqueCalcados').value);
-    const estoqueVestuario = Number(document.getElementById('cfgEstoqueVestuario').value);
+    const estoqueCalcadosManual = Number(document.getElementById('cfgEstoqueCalcados').value);
+    const estoqueVestuarioManual = Number(document.getElementById('cfgEstoqueVestuario').value);
 
     // Meta Dia vem da calculadora (headcount × produtividade do setor), não mais de A×B/C×D
     const setorDia = document.getElementById('cfgSetorDia').value;
@@ -2561,6 +2573,30 @@ async function processar(){
     const itensEmEstoqueTotal = baseFoto.dados.itensEmEstoqueTotal;
     const estoquePorBloco = baseFoto.dados.estoquePorBloco; // bloco -> soma QTD ESTOQUE
     log('Itens em Estoque (total): ' + itensEmEstoqueTotal.toLocaleString('pt-BR'), 'ok');
+
+    // Estoque por segmento sai da própria foto de estoque (bloco -> setor), não do campo
+    // digitado à mão: os dois vinham divergindo (Vestuário estava configurado em 306.230
+    // contra 229.151 reais da foto), o que somava 943.288 num estoque de 866.209 e fazia a
+    // % por segmento e o pendente do prazo saírem errados.
+    let estoqueCalcados = 0, estoqueVestuario = 0;
+    for(const [bloco, qtd] of Object.entries(estoquePorBloco)){
+      const seg = BLOCO_SETOR[bloco];
+      if(seg === 'Calçados') estoqueCalcados += qtd;
+      else if(seg === 'Vestuário') estoqueVestuario += qtd;
+    }
+    if(estoqueCalcados + estoqueVestuario !== itensEmEstoqueTotal){
+      log('⚠ Blocos sem setor no de/para: ' + (itensEmEstoqueTotal - estoqueCalcados - estoqueVestuario).toLocaleString('pt-BR') +
+          ' itens da foto de estoque não entraram em nenhum segmento.', 'warn');
+    }
+    const divergCalc = Math.abs(estoqueCalcados - estoqueCalcadosManual);
+    const divergVest = Math.abs(estoqueVestuario - estoqueVestuarioManual);
+    if(divergCalc > 0 || divergVest > 0){
+      log('ℹ Saldo em Estoque por segmento recalculado pela foto de estoque — Calçados: ' +
+          estoqueCalcados.toLocaleString('pt-BR') + ' (campo dizia ' + estoqueCalcadosManual.toLocaleString('pt-BR') + '), Vestuário: ' +
+          estoqueVestuario.toLocaleString('pt-BR') + ' (campo dizia ' + estoqueVestuarioManual.toLocaleString('pt-BR') + ').', 'warn');
+      document.getElementById('cfgEstoqueCalcados').value = estoqueCalcados;
+      document.getElementById('cfgEstoqueVestuario').value = estoqueVestuario;
+    }
 
     // ---------- 5) BASE DE ENDEREÇOS (dBase_Endereços + Validado) ----------
     const enderecosUnicos = new Map(); // local -> {bloco, setor, regiao, linha}
