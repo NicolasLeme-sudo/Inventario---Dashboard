@@ -756,6 +756,26 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
       </div>
     </div>
 
+    <div class="card">
+      <h2>5. Foto de Picking (saldo de hoje)</h2>
+      <div class="hint" style="margin-bottom:10px;">
+        A foto de início do ciclo envelhece — nos blocos já visitados o estoque real estava de 15% a 30% acima do que ela previa.
+        Esta foto diz quanto existe <b>hoje</b> em cada endereço, e é a partir dela que passa a ser calculado o que ainda falta contar:
+        endereço <b>já contado</b> é ignorado (o saldo novo fica para o próximo ciclo) e endereço <b>ainda não contado</b> entra com o saldo atual.
+        Endereço que não aparecer no arquivo é tratado como saldo zero.
+      </div>
+      <div class="grid">
+        <label class="filepick" id="pick-picking">
+          📄 Foto de picking (.xlsx)<br><span class="hint" id="pick-picking-info">endereço + quantidade — pode reenviar quantas vezes quiser</span>
+          <input type="file" id="input-picking" accept=".xlsx">
+        </label>
+      </div>
+      <div class="actions" style="margin-top:12px;">
+        <button class="btn secondary" id="btnEnviarPicking" disabled>⬆ Atualizar foto de picking</button>
+      </div>
+      <div class="hint" id="pickingStatus" style="margin-top:10px;">Nenhuma foto de picking publicada ainda.</div>
+    </div>
+
     <div class="actions">
       <button class="btn" id="btnProcessar">▶ Processar ciclo</button>
       <button class="btn secondary" id="btnEnviar" disabled>⬆ Enviar para Supabase</button>
@@ -841,12 +861,18 @@ let dadosGeral = null;
 let donutValidado = null;
 
 function montarDadosGeral(resumo){
+  // Com a foto de picking publicada, "em estoque" e "pendentes" passam a valer o híbrido:
+  // foto antiga onde o inventário já passou, saldo de hoje onde ainda falta contar.
+  const temHibrido = resumo.itens_em_estoque_hibrido != null;
+  const emEstoqueItens = temHibrido ? resumo.itens_em_estoque_hibrido : resumo.itens_em_estoque;
+  const pendentesItens = temHibrido ? aContarTotal : resumo.itens_pendentes;
   dadosGeral = {
     itens: {
-      emEstoque: resumo.itens_em_estoque, contados: resumo.itens_contados, pendentes: resumo.itens_pendentes,
-      pctContados: resumo.itens_em_estoque ? resumo.itens_contados/resumo.itens_em_estoque*100 : 0,
-      pctPendentes: resumo.itens_em_estoque ? resumo.itens_pendentes/resumo.itens_em_estoque*100 : 0,
-      acuracidade: formatPct(resumo.acuracidade_estoque*100), acuracidadePct: resumo.acuracidade_estoque*100
+      emEstoque: emEstoqueItens, contados: resumo.itens_contados, pendentes: pendentesItens,
+      pctContados: emEstoqueItens ? resumo.itens_contados/emEstoqueItens*100 : 0,
+      pctPendentes: emEstoqueItens ? pendentesItens/emEstoqueItens*100 : 0,
+      acuracidade: formatPct(resumo.acuracidade_estoque*100), acuracidadePct: resumo.acuracidade_estoque*100,
+      referencia: temHibrido ? 'Foto de início onde já contamos + saldo de hoje onde falta' : 'Referência: foto de início de ciclo'
     },
     itensPorSegmento: {
       'Calçados': {
@@ -918,7 +944,7 @@ function kpiRowHTML(rotulo, d, comAcuracidade){
       <div class="kpi-text">
         <div class="kpi-label">${rotulo} em Estoque</div>
         <div class="kpi-value">${d.emEstoque.toLocaleString('pt-BR')}</div>
-        <div class="kpi-sub">Referência: foto de início de ciclo</div>
+        <div class="kpi-sub">${d.referencia || 'Referência: foto de início de ciclo'}</div>
       </div>
     </div>
     <div class="kpi-card">
@@ -1080,7 +1106,7 @@ function blocoPrazoHTML(titulo, dados){
   return `
     <div class="prazo-card">
       <div class="prazo-card-head"><h3>${titulo}</h3>${pill}</div>
-      <div class="prazo-metric"><span class="lbl">Pendente</span><span class="val">${Math.round(dados.pendente).toLocaleString('pt-BR')} itens</span></div>
+      <div class="prazo-metric"><span class="lbl">${dados.pendenteDeHoje ? 'A contar (saldo de hoje)' : 'Pendente'}</span><span class="val">${Math.round(dados.pendente).toLocaleString('pt-BR')} itens</span></div>
       ${dados.enderecosPendentes ? `<div class="prazo-metric"><span class="lbl">Endereços a visitar</span><span class="val">${dados.enderecosPendentes.toLocaleString('pt-BR')}${dados.ritmoEnderecos ? ' <span class="hint">(' + Math.round(dados.ritmoEnderecos).toLocaleString('pt-BR') + '/dia)</span>' : ''}</span></div>` : ''}
       <div class="prazo-metric"><span class="lbl">Ritmo médio (${dados.diasComDado} dia(s) trabalhados considerados)</span><span class="val">${Math.round(dados.media).toLocaleString('pt-BR')} itens/dia</span></div>
       <div class="prazo-metric"><span class="lbl">Dias necessários</span><span class="val">${dados.diasNecessarios}${(dados.diasPorEnderecos && dados.diasPorEnderecos > dados.diasPorItens) ? ' <span class="hint">(limitado pelos endereços)</span>' : ''}</span></div>
@@ -1133,7 +1159,12 @@ function renderPrazo(){
     temDadoPorEndereco = true;
     dadosBloco.forEach(b => {
       if(!(b.setor in PENDENTE_SETOR)) return;
-      PENDENTE_SETOR[b.setor] += Math.max(0, (Number(b.estoque)||0) - (estoqueContadoPorBloco[b.bloco] || 0));
+      // Com a foto de picking publicada, o pendente é o saldo de HOJE nos endereços que
+      // faltam. Sem ela, cai na estimativa pela foto de início (que já estava 15-30%
+      // defasada nos blocos visitados).
+      PENDENTE_SETOR[b.setor] += fotoPickingCarregada
+        ? (aContarPorBloco[b.bloco] || 0)
+        : Math.max(0, (Number(b.estoque)||0) - (estoqueContadoPorBloco[b.bloco] || 0));
       ENDERECOS_PENDENTES_SETOR[b.setor] += (pendentesPorBloco[b.bloco] || 0);
     });
     ENDERECOS_TOTAIS_SETOR['Calçados'] = Number(r.enderecos_estoque_calcados) || 0;
@@ -1179,7 +1210,7 @@ function renderPrazo(){
         ? Math.ceil(pendente / (diasDisponiveis * PRODUTIVIDADE[nomeSetor]))
         : null;
     }
-    return { pendente, enderecosPendentes: endPendentes, ritmoEnderecos, diasPorItens, diasPorEnderecos,
+    return { pendente, pendenteDeHoje: fotoPickingCarregada, enderecosPendentes: endPendentes, ritmoEnderecos, diasPorItens, diasPorEnderecos,
       media: ritmo.media, diasComDado: ritmo.diasComDado, diasNecessarios, novoPrazo, prazoEstipulado,
       diasAtraso, headcountNecessario, headcountAtual };
   }
@@ -1865,14 +1896,18 @@ async function inicializarDashboard(){
 let enderecosPendentesGeral = [];
 let pendentesPorBloco = {};      // bloco -> nº de endereços ainda não contados
 let estoqueContadoPorBloco = {}; // bloco -> estoque dos endereços já visitados
+let aContarPorBloco = {};        // bloco -> itens a contar pelo saldo de hoje
+let aContarTotal = 0;
+let fotoPickingCarregada = false;
 let baseEnderecosCarregada = false;
 async function atualizarEnderecosPendentesGeral(){
   const btn = document.getElementById('btnEndPendentesGeral');
   if(!cicloAtualId){ btn.style.display = 'none'; return; }
   try{
-    const [base, contados] = await Promise.all([
+    const [base, contados, picking] = await Promise.all([
       sbAll('base_enderecos?select=local,bloco,setor,regiao'),
-      sbAll('enderecos_contados_ciclo?ciclo_id=eq.' + encodeURIComponent(cicloAtualId) + '&select=local,bloco,qtde_estoque')
+      sbAll('enderecos_contados_ciclo?ciclo_id=eq.' + encodeURIComponent(cicloAtualId) + '&select=local,bloco,qtde_estoque'),
+      sbAll('foto_picking?select=local,qtde,bloco').catch(() => [])
     ]);
     const contadosSet = new Set(contados.map(r => r.local));
     enderecosPendentesGeral = base.filter(e => !contadosSet.has(e.local));
@@ -1891,7 +1926,33 @@ async function atualizarEnderecosPendentesGeral(){
       const b = c.bloco || '(sem bloco)';
       estoqueContadoPorBloco[b] = (estoqueContadoPorBloco[b] || 0) + (Number(c.qtde_estoque) || 0);
     });
+    // A CONTAR: saldo de HOJE nos endereços que ainda não foram visitados. A foto de
+    // picking só traz endereço com saldo, então endereço ausente vale zero — nada a contar.
+    // Endereço já contado é ignorado de propósito: o saldo que entrou nele depois da
+    // contagem fica para o próximo ciclo, não volta para a fila deste.
+    aContarPorBloco = {};
+    aContarTotal = 0;
+    fotoPickingCarregada = picking.length > 0;
+    const blocoDoLocal = {};
+    base.forEach(e => { blocoDoLocal[e.local] = e.bloco; });
+    picking.forEach(f => {
+      if(contadosSet.has(f.local)) return;           // já contado: fica para o próximo ciclo
+      const qtd = Number(f.qtde) || 0;
+      const b = f.bloco || blocoDoLocal[f.local] || '(sem bloco)';
+      aContarPorBloco[b] = (aContarPorBloco[b] || 0) + qtd;
+      aContarTotal += qtd;
+    });
+
     baseEnderecosCarregada = base.length > 0;
+    if(fotoPickingCarregada && cicloAtualResumo){
+      // "Itens em Estoque" vira híbrido: onde já passamos inventário vale a foto antiga
+      // (o estoque que o sistema apontava na hora da contagem, base do balanço do ciclo);
+      // onde ainda não passamos vale a foto de hoje.
+      const estoqueJaVisitado = contados.reduce((t,c) => t + (Number(c.qtde_estoque)||0), 0);
+      cicloAtualResumo.itens_em_estoque_hibrido = estoqueJaVisitado + aContarTotal;
+      montarDadosGeral(cicloAtualResumo);
+      renderKpis();
+    }
     filtrarRegiao(); // reavalia os status agora que sabemos o que falta por bloco
     renderPrazo();   // o pendente da projeção depende dos endereços que faltam
     if(!base.length){
@@ -2389,6 +2450,122 @@ async function parseBaseEnderecos(file){
     }
   }
   return { enderecos };
+}
+
+/* ================= FOTO DE PICKING (saldo de hoje) =================
+   Snapshot do estoque atual por endereço, publicado à parte do processamento do ciclo:
+   é atualizado com frequência e não depende de reprocessar contagem nenhuma. */
+
+// A planilha vem de relatórios diferentes conforme quem exporta, então o endereço e a
+// quantidade são procurados por vários nomes de coluna em vez de um só fixo.
+const COLUNAS_LOCAL_PICKING = ['LOCAL','Local','local','ENDEREÇO','ENDERECO','Endereço','Endereco','END','Endereco/Local'];
+const COLUNAS_QTDE_PICKING  = ['QTD ESTOQUE','QTDE ESTOQUE','QTD','QTDE','Qtde','Quantidade','QUANTIDADE','SALDO','Saldo','QTD_ESTOQUE','Qtde. Estoque'];
+
+function acharColuna(linha, candidatas){
+  for(const c of candidatas){ if(c in linha) return c; }
+  // fallback: compara ignorando acento, caixa e espaços
+  const norm = t => String(t).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z]/g,'');
+  const alvos = candidatas.map(norm);
+  for(const chave of Object.keys(linha)){ if(alvos.includes(norm(chave))) return chave; }
+  return null;
+}
+
+async function parseFotoPicking(file){
+  const rows = await readXLSX(file);
+  if(!rows.length) throw new Error('A planilha está vazia.');
+  const colLocal = acharColuna(rows[0], COLUNAS_LOCAL_PICKING);
+  const colQtde  = acharColuna(rows[0], COLUNAS_QTDE_PICKING);
+  if(!colLocal || !colQtde){
+    throw new Error('Não encontrei as colunas de endereço e quantidade. Colunas do arquivo: ' +
+      Object.keys(rows[0]).join(', '));
+  }
+  // Mesmo endereço repetido no relatório (um item por linha) é somado.
+  const porLocal = {};
+  for(const r of rows){
+    const local = r[colLocal];
+    if(!local) continue;
+    const chave = String(local).trim();
+    if(!chave) continue;
+    porLocal[chave] = (porLocal[chave] || 0) + (Number(r[colQtde]) || 0);
+  }
+  return { porLocal, colLocal, colQtde };
+}
+
+let pickingSelecionado = null;
+document.getElementById('input-picking').addEventListener('change', e => {
+  pickingSelecionado = e.target.files[0] || null;
+  markPicked('picking', pickingSelecionado ? pickingSelecionado.name : '');
+  document.getElementById('btnEnviarPicking').disabled = !pickingSelecionado;
+});
+
+document.getElementById('btnEnviarPicking').addEventListener('click', enviarFotoPicking);
+
+async function enviarFotoPicking(){
+  if(!pickingSelecionado) return;
+  const btn = document.getElementById('btnEnviarPicking');
+  btn.disabled = true;
+  document.getElementById('cardLog').style.display = 'block';
+  try{
+    log('Lendo a foto de picking...');
+    const { porLocal, colLocal, colQtde } = await parseFotoPicking(pickingSelecionado);
+    const locais = Object.keys(porLocal);
+    const totalItens = locais.reduce((t,k) => t + porLocal[k], 0);
+    log('Colunas usadas: endereço = "' + colLocal + '", quantidade = "' + colQtde + '"');
+    log('Foto lida: ' + locais.length.toLocaleString('pt-BR') + ' endereços com saldo, ' +
+        totalItens.toLocaleString('pt-BR') + ' itens.', 'ok');
+
+    // O de/para de bloco/setor vem da base de endereços já publicada, para o painel poder
+    // somar o pendente por bloco sem depender do formato do relatório de picking.
+    let infoPorLocal = {};
+    try{
+      const base = await sbAll('base_enderecos?select=local,bloco,setor');
+      base.forEach(e => { infoPorLocal[e.local] = e; });
+    }catch(e){ log('⚠ Não consegui ler a base de endereços para classificar por bloco.', 'warn'); }
+
+    const agora = new Date().toISOString();
+    const linhas = locais.map(local => {
+      const info = infoPorLocal[local];
+      return { local, qtde: porLocal[local], bloco: info ? info.bloco : null,
+               setor: info ? info.setor : null, atualizado_em: agora };
+    });
+    const semCadastro = linhas.filter(l => !l.bloco).length;
+    if(semCadastro){
+      log('ℹ ' + semCadastro.toLocaleString('pt-BR') + ' endereço(s) da foto não estão na base de endereços — entram no total, mas ficam fora do detalhe por bloco.', 'warn');
+    }
+
+    // A foto é um retrato do momento: a anterior sai inteira antes da nova entrar.
+    log('Substituindo a foto de picking anterior...');
+    await supabaseRequest('foto_picking?local=neq.__nenhum__', 'DELETE');
+    for(let i=0;i<linhas.length;i+=500){
+      await supabaseRequest('foto_picking', 'POST', linhas.slice(i,i+500));
+    }
+    log('✔ Foto de picking publicada (' + linhas.length.toLocaleString('pt-BR') + ' endereços)', 'ok');
+
+    await carregarStatusPicking();
+    await inicializarDashboard();
+    log('🎉 Painel atualizado com o saldo de hoje.', 'ok');
+  }catch(err){
+    log('✖ Erro ao publicar a foto de picking: ' + err.message, 'err');
+    console.error(err);
+  }finally{
+    btn.disabled = !pickingSelecionado;
+  }
+}
+
+async function carregarStatusPicking(){
+  const el = document.getElementById('pickingStatus');
+  if(!el) return;
+  try{
+    const linhas = await sbAll('foto_picking?select=qtde,atualizado_em');
+    if(!linhas.length){
+      el.textContent = 'Nenhuma foto de picking publicada ainda.';
+      return;
+    }
+    const total = linhas.reduce((t,l) => t + (Number(l.qtde)||0), 0);
+    const quando = linhas[0].atualizado_em ? new Date(linhas[0].atualizado_em).toLocaleString('pt-BR') : '—';
+    el.innerHTML = '✔ Foto atual: <b>' + linhas.length.toLocaleString('pt-BR') + '</b> endereços com saldo · <b>' +
+      total.toLocaleString('pt-BR') + '</b> itens · publicada em ' + quando;
+  }catch(e){ el.textContent = 'Não foi possível ler a foto de picking publicada.'; }
 }
 
 /* ================= PROCESSAMENTO PRINCIPAL ================= */
@@ -3128,6 +3305,7 @@ async function iniciarApp(){
   aplicarCicloAuto();
   calcularMetaDia();
   await carregarLogAbastecimento();
+  await carregarStatusPicking();
   await inicializarDashboard();
 }
 
