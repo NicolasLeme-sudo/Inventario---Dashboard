@@ -766,8 +766,8 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
       </div>
       <div class="grid">
         <label class="filepick" id="pick-picking">
-          📄 Foto de picking (.xlsx)<br><span class="hint" id="pick-picking-info">endereço + quantidade — pode reenviar quantas vezes quiser</span>
-          <input type="file" id="input-picking" accept=".xlsx">
+          📄 Estoque Picking (.tsv)<br><span class="hint" id="pick-picking-info">relatório do WMS, como exportado — pode reenviar quantas vezes quiser</span>
+          <input type="file" id="input-picking" accept=".tsv,.xlsx">
         </label>
       </div>
       <div class="actions" style="margin-top:12px;">
@@ -2375,7 +2375,7 @@ function normalizarSetor(valor){
   const t = valor.toString().trim().toLowerCase()
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   if(t.startsWith('calcad') || t.startsWith('chinel')) return 'Calçados';
-  if(t.startsWith('vestuar') || t.startsWith('acessor') || t.startsWith('meia')) return 'Vestuário';
+  if(t.startsWith('vestuar') || t.startsWith('acessor') || t.startsWith('meia') || t.startsWith('confec')) return 'Vestuário';
   return null;
 }
 // Setor de um endereço: usa o que a planilha trouxer; se não vier, deduz pelo bloco.
@@ -2454,41 +2454,87 @@ async function parseBaseEnderecos(file){
 
 /* ================= FOTO DE PICKING (saldo de hoje) =================
    Snapshot do estoque atual por endereço, publicado à parte do processamento do ciclo:
-   é atualizado com frequência e não depende de reprocessar contagem nenhuma. */
+   é atualizado com frequência e não depende de reprocessar contagem nenhuma.
 
-// A planilha vem de relatórios diferentes conforme quem exporta, então o endereço e a
-// quantidade são procurados por vários nomes de coluna em vez de um só fixo.
-const COLUNAS_LOCAL_PICKING = ['LOCAL','Local','local','ENDEREÇO','ENDERECO','Endereço','Endereco','END','Endereco/Local'];
-const COLUNAS_QTDE_PICKING  = ['QTD ESTOQUE','QTDE ESTOQUE','QTD','QTDE','Qtde','Quantidade','QUANTIDADE','SALDO','Saldo','QTD_ESTOQUE','Qtde. Estoque'];
+   Layout real do relatório "Estoque Picking" (WMS): .tsv, 1 linha por lote/unidade dentro
+   do endereço (não vem agregado por Local) — um único endereço aparece em várias linhas.
+   Colunas usadas: Local, Estoque (UN), Tipo do Local (só conta PICKING — outros tipos de
+   área não fazem parte da rota de contagem), Estado (só conta NORMAL — avariado/bloqueado
+   não é saldo pickável) e Setor (CALÇADOS / CONFECÇÃO — nome próprio do WMS para Vestuário).
+   Nomes de coluna são procurados com folga (variações de acento/caixa/espaço) porque o WMS
+   já trocou nomenclatura entre exportações. */
+const COLUNAS_LOCAL_PICKING  = ['Local','LOCAL','ENDEREÇO','ENDERECO','Endereço','Endereco'];
+const COLUNAS_QTDE_PICKING   = ['Estoque (UN)','Estoque(UN)','ESTOQUE (UN)','Estoque','QTD ESTOQUE','Qtde. Estoque','Quantidade','SALDO'];
+const COLUNAS_TIPOLOCAL_PICKING = ['Tipo do Local','TIPO DO LOCAL'];
+const COLUNAS_ESTADO_PICKING    = ['Estado','ESTADO'];
+const COLUNAS_SETOR_PICKING     = ['Setor','SETOR'];
 
-function acharColuna(linha, candidatas){
-  for(const c of candidatas){ if(c in linha) return c; }
-  // fallback: compara ignorando acento, caixa e espaços
-  const norm = t => String(t).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z]/g,'');
-  const alvos = candidatas.map(norm);
-  for(const chave of Object.keys(linha)){ if(alvos.includes(norm(chave))) return chave; }
+function normalizarNomeColuna(t){
+  return String(t).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z]/g,'');
+}
+// acha o nome de coluna certo numa lista de cabeçalhos disponíveis (TSV: array; XLSX: chaves do objeto)
+function acharColuna(disponiveis, candidatas){
+  for(const c of candidatas){ if(disponiveis.includes(c)) return c; }
+  const alvos = candidatas.map(normalizarNomeColuna);
+  for(const chave of disponiveis){ if(alvos.includes(normalizarNomeColuna(chave))) return chave; }
   return null;
 }
 
 async function parseFotoPicking(file){
-  const rows = await readXLSX(file);
-  if(!rows.length) throw new Error('A planilha está vazia.');
-  const colLocal = acharColuna(rows[0], COLUNAS_LOCAL_PICKING);
-  const colQtde  = acharColuna(rows[0], COLUNAS_QTDE_PICKING);
-  if(!colLocal || !colQtde){
-    throw new Error('Não encontrei as colunas de endereço e quantidade. Colunas do arquivo: ' +
-      Object.keys(rows[0]).join(', '));
+  const ehTSV = /\.tsv$/i.test(file.name);
+  let linhas, disponiveis, ler;
+  if(ehTSV){
+    const { header, rows } = parseTSV(await readFileAsText(file));
+    if(!header.length) throw new Error('O arquivo está vazio.');
+    disponiveis = header;
+    linhas = rows;
+    ler = (row, coluna) => row[header.indexOf(coluna)];
+  } else {
+    const rows = await readXLSX(file);
+    if(!rows.length) throw new Error('A planilha está vazia.');
+    disponiveis = Object.keys(rows[0]);
+    linhas = rows;
+    ler = (row, coluna) => row[coluna];
   }
-  // Mesmo endereço repetido no relatório (um item por linha) é somado.
+
+  const colLocal = acharColuna(disponiveis, COLUNAS_LOCAL_PICKING);
+  const colQtde  = acharColuna(disponiveis, COLUNAS_QTDE_PICKING);
+  if(!colLocal || !colQtde){
+    throw new Error('Não encontrei as colunas de endereço e quantidade. Colunas do arquivo: ' + disponiveis.join(', '));
+  }
+  const colTipoLocal = acharColuna(disponiveis, COLUNAS_TIPOLOCAL_PICKING);
+  const colEstado    = acharColuna(disponiveis, COLUNAS_ESTADO_PICKING);
+  const colSetor     = acharColuna(disponiveis, COLUNAS_SETOR_PICKING);
+
+  // Mesmo endereço aparece em várias linhas (um lote/unidade por linha) — soma tudo.
+  // Linhas fora de "Tipo do Local = PICKING" ou "Estado = NORMAL" ficam de fora (avaria,
+  // bloqueio, pulmão etc. não são saldo a ser contado no picking).
   const porLocal = {};
-  for(const r of rows){
-    const local = r[colLocal];
+  const setorPorLocal = {};
+  let linhasExcluidas = 0;
+  const tiposExcluidos = new Set(), estadosExcluidos = new Set();
+  for(const row of linhas){
+    const local = ler(row, colLocal);
     if(!local) continue;
     const chave = String(local).trim();
     if(!chave) continue;
-    porLocal[chave] = (porLocal[chave] || 0) + (Number(r[colQtde]) || 0);
+
+    if(colTipoLocal){
+      const t = String(ler(row, colTipoLocal) || '').trim().toUpperCase();
+      if(t && t !== 'PICKING'){ linhasExcluidas++; tiposExcluidos.add(t); continue; }
+    }
+    if(colEstado){
+      const e = String(ler(row, colEstado) || '').trim().toUpperCase();
+      if(e && e !== 'NORMAL'){ linhasExcluidas++; estadosExcluidos.add(e); continue; }
+    }
+
+    porLocal[chave] = (porLocal[chave] || 0) + toNumber(ler(row, colQtde));
+    if(colSetor && !setorPorLocal[chave]){
+      const seg = normalizarSetor(ler(row, colSetor));
+      if(seg) setorPorLocal[chave] = seg;
+    }
   }
-  return { porLocal, colLocal, colQtde };
+  return { porLocal, setorPorLocal, colLocal, colQtde, linhasExcluidas, tiposExcluidos: [...tiposExcluidos], estadosExcluidos: [...estadosExcluidos] };
 }
 
 let pickingSelecionado = null;
@@ -2506,16 +2552,24 @@ async function enviarFotoPicking(){
   btn.disabled = true;
   document.getElementById('cardLog').style.display = 'block';
   try{
-    log('Lendo a foto de picking...');
-    const { porLocal, colLocal, colQtde } = await parseFotoPicking(pickingSelecionado);
+    log('Lendo a foto de picking (arquivo grande, pode levar alguns segundos)...');
+    const { porLocal, setorPorLocal, colLocal, colQtde, linhasExcluidas, tiposExcluidos, estadosExcluidos } =
+      await parseFotoPicking(pickingSelecionado);
     const locais = Object.keys(porLocal);
+    if(!locais.length) throw new Error('Nenhum endereço com saldo foi encontrado no arquivo.');
     const totalItens = locais.reduce((t,k) => t + porLocal[k], 0);
     log('Colunas usadas: endereço = "' + colLocal + '", quantidade = "' + colQtde + '"');
+    if(linhasExcluidas){
+      log('ℹ ' + linhasExcluidas.toLocaleString('pt-BR') + ' linha(s) fora de Tipo do Local = PICKING / Estado = NORMAL foram ignoradas' +
+          (tiposExcluidos.length ? ' — tipos: ' + tiposExcluidos.join(', ') : '') +
+          (estadosExcluidos.length ? ' — estados: ' + estadosExcluidos.join(', ') : '') + '.', 'warn');
+    }
     log('Foto lida: ' + locais.length.toLocaleString('pt-BR') + ' endereços com saldo, ' +
         totalItens.toLocaleString('pt-BR') + ' itens.', 'ok');
 
-    // O de/para de bloco/setor vem da base de endereços já publicada, para o painel poder
-    // somar o pendente por bloco sem depender do formato do relatório de picking.
+    // O de/para de bloco/setor prioriza a base de endereços já publicada (mesmo de/para
+    // oficial usado no resto do painel); se o local não estiver cadastrado lá, usa o Setor
+    // que veio no próprio relatório de picking como reserva.
     let infoPorLocal = {};
     try{
       const base = await sbAll('base_enderecos?select=local,bloco,setor');
@@ -2526,11 +2580,11 @@ async function enviarFotoPicking(){
     const linhas = locais.map(local => {
       const info = infoPorLocal[local];
       return { local, qtde: porLocal[local], bloco: info ? info.bloco : null,
-               setor: info ? info.setor : null, atualizado_em: agora };
+               setor: info ? info.setor : (setorPorLocal[local] || null), atualizado_em: agora };
     });
     const semCadastro = linhas.filter(l => !l.bloco).length;
     if(semCadastro){
-      log('ℹ ' + semCadastro.toLocaleString('pt-BR') + ' endereço(s) da foto não estão na base de endereços — entram no total, mas ficam fora do detalhe por bloco.', 'warn');
+      log('ℹ ' + semCadastro.toLocaleString('pt-BR') + ' endereço(s) da foto não estão na base de endereços — entram no total, mas ficam fora do detalhe por bloco (setor classificado pelo próprio relatório quando disponível).', 'warn');
     }
 
     // A foto é um retrato do momento: a anterior sai inteira antes da nova entrar.
