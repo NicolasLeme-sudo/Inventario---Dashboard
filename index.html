@@ -2748,7 +2748,6 @@ async function processar(){
           setor: info ? setorDoEndereco(info) : null,
           qtde_inventario: somas.inventario, qtde_estoque: somas.estoque };
       }),
-      modoReconciliacao,
       arquivosProcessadosAgora: [
         ...state.bipagensFiles.map(f => ({ ciclo_id: cicloId, tipo: 'bipagens', nome_arquivo: f.name })),
         ...state.diferencaFiles.map(f => ({ ciclo_id: cicloId, tipo: 'diferenca', nome_arquivo: f.name }))
@@ -2866,6 +2865,22 @@ async function supabaseRequest(path, method, body, extraHeaders){
   return res;
 }
 
+// O detalhe de um ciclo passa de 900 mil linhas e um DELETE único estoura o statement
+// timeout da API (erro 57014). A função limpar_detalhe_ciclo apaga um lote por chamada e
+// devolve quantas linhas saíram, então repetimos até zerar, mostrando o progresso.
+async function limparDetalheDoCiclo(cicloId){
+  let total = 0;
+  for(let volta = 0; volta < 200; volta++){
+    const res = await supabaseRequest('rpc/limpar_detalhe_ciclo', 'POST', { p_ciclo: cicloId, p_lote: 50000 });
+    const apagadas = Number(await res.json()) || 0;
+    if(!apagadas) break;
+    total += apagadas;
+    log('   ... ' + total.toLocaleString('pt-BR') + ' linhas de detalhe apagadas');
+  }
+  if(total) log('✔ Detalhe anterior removido (' + total.toLocaleString('pt-BR') + ' linhas)', 'ok');
+  return total;
+}
+
 async function enviarSupabase(){
   if(!state.resultado) return;
   document.getElementById('btnEnviar').disabled = true;
@@ -2879,7 +2894,7 @@ async function enviarSupabase(){
       log('Modo Reconciliação: limpando o estado anterior deste ciclo antes de reconstruir...', 'warn');
       const filtro = 'ciclo_id=eq.' + encodeURIComponent(cicloId);
       await supabaseRequest('enderecos_contados_ciclo?' + filtro, 'DELETE');
-      await supabaseRequest('ganhos_perdas_detalhe?' + filtro, 'DELETE');
+      await limparDetalheDoCiclo(cicloId);
       await supabaseRequest('ciclos_diario?' + filtro, 'DELETE');
       await supabaseRequest('arquivos_processados?' + filtro, 'DELETE');
       log('✔ Estado anterior do ciclo limpo', 'ok');
@@ -2898,14 +2913,9 @@ async function enviarSupabase(){
 
     // ganhos_perdas_detalhe: cada arquivo cobre 1 inventário (normalmente 1 rua) — ACRESCENTA
     // ao ciclo em vez de apagar tudo, pra não perder o histórico das ruas já processadas antes.
-    // Exceção: em Modo Reconciliação o lote é o ciclo inteiro, então acrescentar duplicaria
-    // todo o detalhe já publicado — nesse caso o detalhe do ciclo é substituído.
-    if(state.resultado.modoReconciliacao){
-      log('Modo Reconciliação: apagando o detalhe de ganhos/perdas já publicado deste ciclo antes de regravar...', 'warn');
-      await supabaseRequest('ganhos_perdas_detalhe?ciclo_id=eq.' + encodeURIComponent(cicloId), 'DELETE');
-      log('✔ Detalhe anterior removido', 'ok');
-    }
-    log('Enviando ganhos_perdas_detalhe' + (state.resultado.modoReconciliacao ? ' (regravando o ciclo inteiro)' : ' (acrescentando ao ciclo, sem apagar o que já tinha)') + '...');
+    // Exceção: em Modo Reconciliação o lote é o ciclo inteiro e o detalhe antigo já foi
+    // apagado na limpeza do início do envio.
+    log('Enviando ganhos_perdas_detalhe' + (state.resultado.reconciliacao ? ' (regravando o ciclo inteiro)' : ' (acrescentando ao ciclo, sem apagar o que já tinha)') + '...');
     if(state.resultado.ganhosPerdas.length){
       // envia em lotes de 500 para não estourar o payload
       for(let i=0;i<state.resultado.ganhosPerdas.length;i+=500){
@@ -2926,10 +2936,6 @@ async function enviarSupabase(){
     // merge-duplicates de propósito: se o endereço for recontado, o valor novo SUBSTITUI o
     // anterior daquele endereço — é o que impede a mesma rua de ser somada duas vezes em
     // "Itens Contados" (causa da leitura de 120% no ciclo 2026-S35).
-    if(state.resultado.modoReconciliacao){
-      log('Modo Reconciliação: apagando os endereços contados registrados deste ciclo antes de regravar...', 'warn');
-      await supabaseRequest('enderecos_contados_ciclo?ciclo_id=eq.' + encodeURIComponent(cicloId), 'DELETE');
-    }
     if(state.resultado.enderecosNovosContados.length){
       log('Registrando endereços contados (' + state.resultado.enderecosNovosContados.length + ' deste lote)...');
       for(let i=0;i<state.resultado.enderecosNovosContados.length;i+=500){
