@@ -226,6 +226,31 @@ tbody tr.pendente td{color:var(--text-secondary); font-style:italic;}
 .status-pill.pendente{background:rgba(147,165,184,.2); color:var(--text-secondary);}
 .status-pill.atraso{background:rgba(200,16,46,.15); color:var(--negative);}
 .status-pill.andamento{background:rgba(255,184,0,.15); color:var(--accent-gold);}
+/* Status editável manualmente (tabela Por Região/Bloco e Por Setor): pendente aqui usa
+   vermelho, não o cinza neutro do resto do painel — pedido explícito de semáforo
+   vermelho/amarelo/verde nessas duas tabelas específicas. */
+.status-pill.st-pendente{background:rgba(200,16,46,.15); color:var(--negative);}
+.status-cell{position:relative; display:inline-block;}
+.status-toggle{cursor:pointer; user-select:none; display:inline-flex; align-items:center; gap:4px;}
+.status-toggle:hover{filter:brightness(1.15);}
+.status-caret{font-size:8px; opacity:.85;}
+.status-dropdown{
+  display:none; position:absolute; z-index:50; top:calc(100% + 4px); left:0;
+  background:var(--card-bg); border:1px solid var(--card-border); border-radius:8px;
+  box-shadow:0 10px 26px rgba(0,0,0,.4); padding:4px; min-width:150px;
+}
+.status-dropdown.aberto{display:block;}
+.status-opt{
+  display:flex; align-items:center; gap:8px; width:100%; padding:7px 10px; border:none;
+  background:transparent; border-radius:6px; cursor:pointer; font-family:inherit; font-size:12px;
+  color:var(--text-primary); text-align:left;
+}
+.status-opt:hover{background:rgba(255,255,255,.06);}
+.status-opt .dot{width:9px; height:9px; border-radius:50%; display:inline-block; flex-shrink:0;}
+.status-opt .dot.pendente{background:var(--negative);}
+.status-opt .dot.andamento{background:var(--accent-gold);}
+.status-opt .dot.validado{background:var(--positive);}
+.status-opt.auto{border-top:1px solid var(--card-border); margin-top:3px; padding-top:8px; color:var(--text-secondary); font-style:italic;}
 
 /* ===== Previsão de Prazo (Visão Geral) ===== */
 .prazo-row{display:grid; grid-template-columns:repeat(2,1fr); gap:16px;}
@@ -1610,6 +1635,76 @@ function popularFiltroBloco(){
   sel.innerHTML = '<option value="">Todos</option>' + blocos.map(b => `<option>${b}</option>`).join('');
   if(blocos.includes(atual)) sel.value = atual;
 }
+/* ================= STATUS MANUAL DE BLOCO/SETOR =================
+   Override editável à mão que sobrepõe o cálculo automático (endereços pendentes) até o
+   usuário mudar de novo — persistido por ciclo em status_manual_ciclo. */
+let statusManual = {}; // "tipo::chave" -> 'pendente' | 'andamento' | 'validado'
+async function carregarStatusManual(cicloId){
+  statusManual = {};
+  try{
+    const linhas = await sb('status_manual_ciclo?ciclo_id=eq.' + encodeURIComponent(cicloId) + '&select=tipo,chave,status');
+    linhas.forEach(l => { statusManual[l.tipo + '::' + l.chave] = l.status; });
+  }catch(e){ console.warn('Não foi possível carregar o status manual:', e); }
+}
+
+const ROTULO_STATUS = {
+  bloco: { pendente:'Pendente', andamento:'Em andamento', validado:'Validado' },
+  setor: { pendente:'Pendente', andamento:'Em andamento', validado:'Concluído' }
+};
+// classe CSS 'pendente' já existe com outro tom (cinza, usado em outras telas); as tabelas
+// de bloco/setor usam 'st-pendente' (vermelho) especificamente para o semáforo pedido.
+const CLASSE_PILL = { pendente:'st-pendente', andamento:'andamento', validado:'validado' };
+
+function statusCellHTML(tipo, chave, classeAuto, textoAuto){
+  const override = statusManual[tipo + '::' + chave];
+  const classe = override ? CLASSE_PILL[override] : (classeAuto === 'pendente' ? 'st-pendente' : classeAuto);
+  const texto = override ? ROTULO_STATUS[tipo][override] : textoAuto;
+  const opts = ['pendente','andamento','validado'].map(st =>
+    `<button class="status-opt" onclick="alterarStatusManual('${tipo}','${chave}','${st}')">
+       <i class="dot ${st}"></i>${ROTULO_STATUS[tipo][st]}
+     </button>`
+  ).join('');
+  const optAuto = override
+    ? `<button class="status-opt auto" onclick="alterarStatusManual('${tipo}','${chave}',null)">↺ Automático</button>`
+    : '';
+  return `<td>
+    <div class="status-cell">
+      <span class="status-pill ${classe} status-toggle" onclick="toggleStatusDropdown(this)">${texto}<span class="status-caret">▼</span></span>
+      <div class="status-dropdown">${opts}${optAuto}</div>
+    </div>
+  </td>`;
+}
+function toggleStatusDropdown(pill){
+  const dropdown = pill.nextElementSibling;
+  const jaAberto = dropdown.classList.contains('aberto');
+  document.querySelectorAll('.status-dropdown.aberto').forEach(d => d.classList.remove('aberto'));
+  if(!jaAberto) dropdown.classList.add('aberto');
+}
+document.addEventListener('click', e => {
+  if(e.target.closest('.status-cell')) return;
+  document.querySelectorAll('.status-dropdown.aberto').forEach(d => d.classList.remove('aberto'));
+});
+async function alterarStatusManual(tipo, chave, status){
+  document.querySelectorAll('.status-dropdown.aberto').forEach(d => d.classList.remove('aberto'));
+  if(!cicloAtualId) return;
+  try{
+    if(status === null){
+      await supabaseRequest('status_manual_ciclo?ciclo_id=eq.' + encodeURIComponent(cicloAtualId) +
+        '&tipo=eq.' + tipo + '&chave=eq.' + encodeURIComponent(chave), 'DELETE');
+      delete statusManual[tipo + '::' + chave];
+    } else {
+      const quem = document.getElementById('cfgSeuNome') ? document.getElementById('cfgSeuNome').value.trim() || null : null;
+      await supabaseRequest('status_manual_ciclo?on_conflict=ciclo_id,tipo,chave', 'POST',
+        { ciclo_id: cicloAtualId, tipo, chave, status, definido_por: quem },
+        { 'Prefer':'resolution=merge-duplicates' });
+      statusManual[tipo + '::' + chave] = status;
+    }
+    filtrarRegiao();
+  }catch(e){
+    alert('Não foi possível salvar o status: ' + e.message);
+  }
+}
+
 function filtrarRegiao(){
   const bloco = document.getElementById('filtro-bloco').value;
   const setor = document.getElementById('filtro-setor').value;
@@ -1625,7 +1720,8 @@ function filtrarRegiao(){
       ? `<td class="${diff < 0 ? 'val-neg' : diff > 0 ? 'val-pos' : ''}">${diff.toLocaleString('pt-BR')}</td>`
       : `<td class="hint">a contar</td>`;
     // "Validado" só quando não sobrou nenhum endereço por contar no bloco; com contagem
-    // iniciada mas endereços pendentes, o bloco está em andamento (amarelo).
+    // iniciada mas endereços pendentes, o bloco está em andamento (amarelo). O usuário pode
+    // sobrepor esse cálculo manualmente pelo dropdown — ver statusCellHTML.
     const faltamEnderecos = (pendentesPorBloco[r.bloco] || 0) > 0;
     const st = !validado ? { classe:'pendente', texto:'Pendente' }
              : (baseEnderecosCarregada && faltamEnderecos) ? { classe:'andamento', texto:'Em andamento' }
@@ -1635,7 +1731,7 @@ function filtrarRegiao(){
       <td>${r.estoque.toLocaleString('pt-BR')}</td>
       <td>${r.inventario.toLocaleString('pt-BR')}</td>
       ${colunaDiff}
-      <td><span class="status-pill ${st.classe}">${st.texto}</span></td>
+      ${statusCellHTML('bloco', r.bloco, st.classe, st.texto)}
     </tr>`;
   }).join('');
 
@@ -1650,7 +1746,7 @@ function filtrarRegiao(){
     const pct = s.estoque > 0 ? (s.inventario / s.estoque * 100) : 0;
     const iniciado = s.inventario > 0;
     // Mesmo critério dos blocos: o setor só fecha quando nenhum dos seus blocos tem
-    // endereço pendente.
+    // endereço pendente. Também pode ser sobreposto manualmente pelo dropdown.
     const faltamEnderecos = s.blocos.some(b => (pendentesPorBloco[b] || 0) > 0);
     const st = !iniciado ? { classe:'pendente', texto:'Pendente' }
              : (!baseEnderecosCarregada || faltamEnderecos) ? { classe:'andamento', texto:'Em andamento' }
@@ -1660,7 +1756,7 @@ function filtrarRegiao(){
       <td>${s.estoque.toLocaleString('pt-BR')}</td>
       <td>${s.inventario.toLocaleString('pt-BR')}</td>
       <td>${formatPct(pct)}</td>
-      <td><span class="status-pill ${st.classe}">${st.texto}</span></td>
+      ${statusCellHTML('setor', nome, st.classe, st.texto)}
     </tr>`;
   }).join('');
 }
@@ -1846,7 +1942,8 @@ async function carregarCiclo(cicloId){
   // carregado sob demanda (só a página visível), então nunca segura o resto da tela.
   const [regiaoBloco] = await Promise.all([
     sb('regiao_bloco_detalhe?ciclo_id=eq.' + encodeURIComponent(cicloId)),
-    carregarDiarioDoCiclo(cicloId)
+    carregarDiarioDoCiclo(cicloId),
+    carregarStatusManual(cicloId)
   ]);
 
   dadosBloco = regiaoBloco.map(r => ({
