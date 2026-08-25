@@ -1081,8 +1081,9 @@ function blocoPrazoHTML(titulo, dados){
     <div class="prazo-card">
       <div class="prazo-card-head"><h3>${titulo}</h3>${pill}</div>
       <div class="prazo-metric"><span class="lbl">Pendente</span><span class="val">${Math.round(dados.pendente).toLocaleString('pt-BR')} itens</span></div>
+      ${dados.enderecosPendentes ? `<div class="prazo-metric"><span class="lbl">Endereços a visitar</span><span class="val">${dados.enderecosPendentes.toLocaleString('pt-BR')}${dados.ritmoEnderecos ? ' <span class="hint">(' + Math.round(dados.ritmoEnderecos).toLocaleString('pt-BR') + '/dia)</span>' : ''}</span></div>` : ''}
       <div class="prazo-metric"><span class="lbl">Ritmo médio (${dados.diasComDado} dia(s) trabalhados considerados)</span><span class="val">${Math.round(dados.media).toLocaleString('pt-BR')} itens/dia</span></div>
-      <div class="prazo-metric"><span class="lbl">Dias necessários</span><span class="val">${dados.diasNecessarios}</span></div>
+      <div class="prazo-metric"><span class="lbl">Dias necessários</span><span class="val">${dados.diasNecessarios}${(dados.diasPorEnderecos && dados.diasPorEnderecos > dados.diasPorItens) ? ' <span class="hint">(limitado pelos endereços)</span>' : ''}</span></div>
       <div class="prazo-metric"><span class="lbl">Novo Prazo Projetado</span><span class="val destaque">${formatarDataBR(dados.novoPrazo)}</span></div>
       <div class="prazo-metric"><span class="lbl">Prazo Estipulado</span><span class="val">${dados.prazoEstipulado ? formatarDataBR(dados.prazoEstipulado) : '—'}</span></div>
       ${linhaAtraso}
@@ -1120,22 +1121,55 @@ function renderPrazo(){
     'Calçados': Number(r.produtividade_calcados) || 4500,
     'Vestuário': Number(r.produtividade_vestuario) || 1500
   };
-  const PENDENTE_SETOR = {
-    'Calçados': Math.max(0, (Number(r.itens_estoque_calcados)||0) - (Number(r.itens_contados_calcados)||0)),
-    'Vestuário': Math.max(0, (Number(r.itens_estoque_vestuario)||0) - (Number(r.itens_contados_vestuario)||0))
-  };
+  // O pendente não pode sair de "estoque - contados": contar mais itens do que a foto previa
+  // (ganho de saldo) zerava a conta e o ciclo aparecia como concluído mesmo faltando o bloco G
+  // inteiro. Ele passa a ser o estoque dos endereços que ainda NÃO foram visitados — só some
+  // da fila o endereço efetivamente contado.
+  const PENDENTE_SETOR = { 'Calçados': 0, 'Vestuário': 0 };
+  const ENDERECOS_PENDENTES_SETOR = { 'Calçados': 0, 'Vestuário': 0 };
+  const ENDERECOS_TOTAIS_SETOR = { 'Calçados': 0, 'Vestuário': 0 };
+  let temDadoPorEndereco = false;
+  if(baseEnderecosCarregada && dadosBloco && dadosBloco.length){
+    temDadoPorEndereco = true;
+    dadosBloco.forEach(b => {
+      if(!(b.setor in PENDENTE_SETOR)) return;
+      PENDENTE_SETOR[b.setor] += Math.max(0, (Number(b.estoque)||0) - (estoqueContadoPorBloco[b.bloco] || 0));
+      ENDERECOS_PENDENTES_SETOR[b.setor] += (pendentesPorBloco[b.bloco] || 0);
+    });
+    ENDERECOS_TOTAIS_SETOR['Calçados'] = Number(r.enderecos_estoque_calcados) || 0;
+    ENDERECOS_TOTAIS_SETOR['Vestuário'] = Number(r.enderecos_estoque_vestuario) || 0;
+  } else {
+    // Sem a base de endereços publicada ainda, cai no cálculo antigo por diferença de totais.
+    PENDENTE_SETOR['Calçados'] = Math.max(0, (Number(r.itens_estoque_calcados)||0) - (Number(r.itens_contados_calcados)||0));
+    PENDENTE_SETOR['Vestuário'] = Math.max(0, (Number(r.itens_estoque_vestuario)||0) - (Number(r.itens_contados_vestuario)||0));
+  }
 
   function projetarSetor(nomeSetor){
     if(!nomeSetor || !(nomeSetor in PENDENTE_SETOR)) return { semRitmo: true };
     const pendente = PENDENTE_SETOR[nomeSetor];
     const entradasSetor = serie.filter(e => e.setor === nomeSetor);
     const ritmo = ritmoMedio(entradasSetor, modoJanela, valorJanela);
-    if(pendente <= 0){
-      return { concluido: true, pendente: 0, media: ritmo ? ritmo.media : 0, diasComDado: ritmo ? ritmo.diasComDado : 0,
+    const endPendentes = ENDERECOS_PENDENTES_SETOR[nomeSetor] || 0;
+    // Só é "concluído" quando não sobra item NEM endereço por visitar.
+    if(pendente <= 0 && !(temDadoPorEndereco && endPendentes > 0)){
+      return { concluido: true, pendente: 0, enderecosPendentes: 0, media: ritmo ? ritmo.media : 0,
+        diasComDado: ritmo ? ritmo.diasComDado : 0,
         diasNecessarios: 0, novoPrazo: hoje, prazoEstipulado };
     }
     if(!ritmo || ritmo.media <= 0) return { semRitmo: true };
-    const diasNecessarios = Math.ceil(pendente / ritmo.media);
+    // O prazo é ditado pelo gargalo: terminar os itens não basta se ainda há endereços a
+    // visitar (e vice-versa). O ritmo de endereços/dia vem do que já foi visitado no setor
+    // ao longo dos dias trabalhados.
+    const diasPorItens = pendente > 0 ? Math.ceil(pendente / ritmo.media) : 0;
+    let diasPorEnderecos = 0, ritmoEnderecos = null;
+    if(temDadoPorEndereco && endPendentes > 0){
+      const visitados = Math.max(0, (ENDERECOS_TOTAIS_SETOR[nomeSetor] || 0) - endPendentes);
+      ritmoEnderecos = ritmo.diasComDado > 0 ? visitados / ritmo.diasComDado : 0;
+      diasPorEnderecos = ritmoEnderecos > 0 ? Math.ceil(endPendentes / ritmoEnderecos) : null;
+    }
+    const diasNecessarios = diasPorEnderecos === null
+      ? diasPorItens
+      : Math.max(diasPorItens, diasPorEnderecos);
     const novoPrazo = new Date(hoje.getTime() + diasNecessarios * 86400000);
     const diasAtraso = prazoEstipulado ? Math.round((novoPrazo - prazoEstipulado) / 86400000) : null;
     let headcountNecessario = null, headcountAtual = null;
@@ -1145,7 +1179,8 @@ function renderPrazo(){
         ? Math.ceil(pendente / (diasDisponiveis * PRODUTIVIDADE[nomeSetor]))
         : null;
     }
-    return { pendente, media: ritmo.media, diasComDado: ritmo.diasComDado, diasNecessarios, novoPrazo, prazoEstipulado,
+    return { pendente, enderecosPendentes: endPendentes, ritmoEnderecos, diasPorItens, diasPorEnderecos,
+      media: ritmo.media, diasComDado: ritmo.diasComDado, diasNecessarios, novoPrazo, prazoEstipulado,
       diasAtraso, headcountNecessario, headcountAtual };
   }
 
@@ -1829,6 +1864,7 @@ async function inicializarDashboard(){
    nada localmente para ver quais endereços ainda faltam contar no ciclo atual. */
 let enderecosPendentesGeral = [];
 let pendentesPorBloco = {};      // bloco -> nº de endereços ainda não contados
+let estoqueContadoPorBloco = {}; // bloco -> estoque dos endereços já visitados
 let baseEnderecosCarregada = false;
 async function atualizarEnderecosPendentesGeral(){
   const btn = document.getElementById('btnEndPendentesGeral');
@@ -1836,7 +1872,7 @@ async function atualizarEnderecosPendentesGeral(){
   try{
     const [base, contados] = await Promise.all([
       sbAll('base_enderecos?select=local,bloco,setor,regiao'),
-      sbAll('enderecos_contados_ciclo?ciclo_id=eq.' + encodeURIComponent(cicloAtualId) + '&select=local')
+      sbAll('enderecos_contados_ciclo?ciclo_id=eq.' + encodeURIComponent(cicloAtualId) + '&select=local,bloco,qtde_estoque')
     ]);
     const contadosSet = new Set(contados.map(r => r.local));
     enderecosPendentesGeral = base.filter(e => !contadosSet.has(e.local));
@@ -1848,8 +1884,16 @@ async function atualizarEnderecosPendentesGeral(){
       const b = e.bloco || '(sem bloco)';
       pendentesPorBloco[b] = (pendentesPorBloco[b] || 0) + 1;
     });
+    // Estoque (da foto de início) que já saiu da fila por ter sido visitado: é o que
+    // permite calcular o pendente pelos endereços que faltam, em vez de subtrair totais.
+    estoqueContadoPorBloco = {};
+    contados.forEach(c => {
+      const b = c.bloco || '(sem bloco)';
+      estoqueContadoPorBloco[b] = (estoqueContadoPorBloco[b] || 0) + (Number(c.qtde_estoque) || 0);
+    });
     baseEnderecosCarregada = base.length > 0;
     filtrarRegiao(); // reavalia os status agora que sabemos o que falta por bloco
+    renderPrazo();   // o pendente da projeção depende dos endereços que faltam
     if(!base.length){
       btn.style.display = 'none';
       return;
