@@ -235,7 +235,10 @@ tbody tr.pendente td{color:var(--text-secondary); font-style:italic;}
 .status-toggle:hover{filter:brightness(1.15);}
 .status-caret{font-size:8px; opacity:.85;}
 .status-dropdown{
-  display:none; position:absolute; z-index:50; top:calc(100% + 4px); left:0;
+  /* fixed (não absolute) de propósito: as tabelas ficam dentro de contêineres com
+     overflow:hidden/auto (rolagem, cantos arredondados) que cortavam o menu — fixed escapa
+     desses ancestrais porque nenhum deles usa transform. Posição calculada em JS ao abrir. */
+  display:none; position:fixed; z-index:500;
   background:var(--card-bg); border:1px solid var(--card-border); border-radius:8px;
   box-shadow:0 10px 26px rgba(0,0,0,.4); padding:4px; min-width:150px;
 }
@@ -1678,12 +1681,26 @@ function toggleStatusDropdown(pill){
   const dropdown = pill.nextElementSibling;
   const jaAberto = dropdown.classList.contains('aberto');
   document.querySelectorAll('.status-dropdown.aberto').forEach(d => d.classList.remove('aberto'));
-  if(!jaAberto) dropdown.classList.add('aberto');
+  if(jaAberto) return;
+  // Posiciona pela viewport (o dropdown é position:fixed) e vira pra cima ou pra esquerda
+  // quando não cabe embaixo/à direita, pra nunca ficar cortado ou sair da tela.
+  const r = pill.getBoundingClientRect();
+  dropdown.classList.add('aberto'); // precisa estar visível pra medir a altura/largura reais
+  const dw = dropdown.offsetWidth, dh = dropdown.offsetHeight;
+  let top = r.bottom + 4, left = r.left;
+  if(top + dh > window.innerHeight) top = r.top - dh - 4;
+  if(left + dw > window.innerWidth) left = Math.max(4, window.innerWidth - dw - 4);
+  dropdown.style.top = top + 'px';
+  dropdown.style.left = left + 'px';
 }
 document.addEventListener('click', e => {
   if(e.target.closest('.status-cell')) return;
   document.querySelectorAll('.status-dropdown.aberto').forEach(d => d.classList.remove('aberto'));
 });
+// position:fixed some junto do clique de rolagem se não reposicionar — mais simples fechar.
+window.addEventListener('scroll', () => {
+  document.querySelectorAll('.status-dropdown.aberto').forEach(d => d.classList.remove('aberto'));
+}, true);
 async function alterarStatusManual(tipo, chave, status){
   document.querySelectorAll('.status-dropdown.aberto').forEach(d => d.classList.remove('aberto'));
   if(!cicloAtualId) return;
