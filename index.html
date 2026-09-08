@@ -3377,37 +3377,16 @@ async function enviarSupabase(){
       log('✔ Estado anterior do ciclo limpo', 'ok');
     }
 
-    log('Enviando ciclos_resumo (upsert)...');
-    await supabaseRequest('ciclos_resumo', 'POST', state.resultado.resumo, { 'Prefer':'resolution=merge-duplicates' });
-    log('✔ ciclos_resumo OK', 'ok');
-
-    log('Enviando ciclos_diario (upsert — valores já acumulados por dia)...');
-    const diarioComCiclo = state.resultado.diario.map(d => ({ ciclo_id: cicloId, ...d }));
-    if(diarioComCiclo.length){
-      await supabaseRequest('ciclos_diario?on_conflict=ciclo_id,data', 'POST', diarioComCiclo, { 'Prefer':'resolution=merge-duplicates' });
-    }
-    log('✔ ciclos_diario OK (' + diarioComCiclo.length + ' dias)', 'ok');
-
-    // ganhos_perdas_detalhe: cada arquivo cobre 1 inventário (normalmente 1 rua) — ACRESCENTA
-    // ao ciclo em vez de apagar tudo, pra não perder o histórico das ruas já processadas antes.
-    // Exceção: em Modo Reconciliação o lote é o ciclo inteiro e o detalhe antigo já foi
-    // apagado na limpeza do início do envio.
-    log('Enviando ganhos_perdas_detalhe' + (state.resultado.reconciliacao ? ' (regravando o ciclo inteiro)' : ' (acrescentando ao ciclo, sem apagar o que já tinha)') + '...');
-    if(state.resultado.ganhosPerdas.length){
-      // envia em lotes de 500 para não estourar o payload
-      for(let i=0;i<state.resultado.ganhosPerdas.length;i+=500){
-        await supabaseRequest('ganhos_perdas_detalhe', 'POST', state.resultado.ganhosPerdas.slice(i,i+500));
-      }
-    }
-    log('✔ ganhos_perdas_detalhe OK (' + state.resultado.ganhosPerdas.length + ' linhas)', 'ok');
-
-    // regiao_bloco_detalhe: upsert por (ciclo_id, bloco) — atualiza só os blocos que entraram
-    // nesse processamento, mantém intactos os blocos de ruas já enviadas antes.
-    log('Enviando regiao_bloco_detalhe (atualiza só os blocos processados agora)...');
-    if(state.resultado.regiaoBloco.length){
-      await supabaseRequest('regiao_bloco_detalhe?on_conflict=ciclo_id,bloco', 'POST', state.resultado.regiaoBloco, { 'Prefer':'resolution=merge-duplicates' });
-    }
-    log('✔ regiao_bloco_detalhe OK (' + state.resultado.regiaoBloco.length + ' blocos)', 'ok');
+    // ---------- ORDEM DE GRAVAÇÃO ----------
+    // ciclos_resumo é um RESUMO derivado das tabelas abaixo — não a fonte dos números. Se o
+    // envio for interrompido no meio (rede, timeout), o que já foi gravado até aquele ponto
+    // fica valendo. Por isso as tabelas "ficha corrida por endereço/bloco", que a Previsão de
+    // Prazo e os outros gráficos leem direto, vão TODAS antes do resumo — e o resumo só é
+    // publicado depois que tudo que ele resume já está salvo. Foi o oposto disso que deixou o
+    // ciclo 2026-S37 com o resumo dizendo "38.763 endereços contados" enquanto
+    // enderecos_contados_ciclo (a ficha real) continuava com 0 linhas: o envio caiu no meio de
+    // ganhos_perdas_detalhe (a etapa mais lenta e mais sujeita a falhar, por isso agora é a
+    // ÚLTIMA), depois de já ter publicado um ciclos_resumo que nada mais sustentava.
 
     // enderecos_contados_ciclo: um registro por local, com a quantidade contada. Usa
     // merge-duplicates de propósito: se o endereço for recontado, o valor novo SUBSTITUI o
@@ -3432,6 +3411,42 @@ async function enviarSupabase(){
       }
       log('✔ base_enderecos OK', 'ok');
     }
+
+    // regiao_bloco_detalhe: upsert por (ciclo_id, bloco) — atualiza só os blocos que entraram
+    // nesse processamento, mantém intactos os blocos de ruas já enviadas antes.
+    log('Enviando regiao_bloco_detalhe (atualiza só os blocos processados agora)...');
+    if(state.resultado.regiaoBloco.length){
+      await supabaseRequest('regiao_bloco_detalhe?on_conflict=ciclo_id,bloco', 'POST', state.resultado.regiaoBloco, { 'Prefer':'resolution=merge-duplicates' });
+    }
+    log('✔ regiao_bloco_detalhe OK (' + state.resultado.regiaoBloco.length + ' blocos)', 'ok');
+
+    log('Enviando ciclos_diario (upsert — valores já acumulados por dia)...');
+    const diarioComCiclo = state.resultado.diario.map(d => ({ ciclo_id: cicloId, ...d }));
+    if(diarioComCiclo.length){
+      await supabaseRequest('ciclos_diario?on_conflict=ciclo_id,data', 'POST', diarioComCiclo, { 'Prefer':'resolution=merge-duplicates' });
+    }
+    log('✔ ciclos_diario OK (' + diarioComCiclo.length + ' dias)', 'ok');
+
+    log('Enviando ciclos_resumo (upsert)...');
+    await supabaseRequest('ciclos_resumo', 'POST', state.resultado.resumo, { 'Prefer':'resolution=merge-duplicates' });
+    log('✔ ciclos_resumo OK', 'ok');
+
+    // ganhos_perdas_detalhe vai por último de propósito: é a tabela mais pesada de longe
+    // (centenas de milhares de linhas), mais sujeita a demorar/falhar, e só alimenta a aba
+    // Ganhos x Perdas — não o resumo nem a previsão de prazo. Se ela falhar aqui, o resto do
+    // painel já está publicado e consistente; só essa aba fica desatualizada até o próximo envio.
+    // Cada arquivo cobre 1 inventário (normalmente 1 rua) — ACRESCENTA ao ciclo em vez de apagar
+    // tudo, pra não perder o histórico das ruas já processadas antes. Exceção: em Modo
+    // Reconciliação o lote é o ciclo inteiro e o detalhe antigo já foi apagado na limpeza do
+    // início do envio.
+    log('Enviando ganhos_perdas_detalhe' + (state.resultado.reconciliacao ? ' (regravando o ciclo inteiro)' : ' (acrescentando ao ciclo, sem apagar o que já tinha)') + '...');
+    if(state.resultado.ganhosPerdas.length){
+      // envia em lotes de 500 para não estourar o payload
+      for(let i=0;i<state.resultado.ganhosPerdas.length;i+=500){
+        await supabaseRequest('ganhos_perdas_detalhe', 'POST', state.resultado.ganhosPerdas.slice(i,i+500));
+      }
+    }
+    log('✔ ganhos_perdas_detalhe OK (' + state.resultado.ganhosPerdas.length + ' linhas)', 'ok');
 
     // arquivos_processados: trava contra reenvio acidental do mesmo arquivo no próximo ciclo.
     log('Registrando arquivos processados neste ciclo...');
