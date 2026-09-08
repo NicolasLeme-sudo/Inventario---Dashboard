@@ -2854,6 +2854,11 @@ async function processar(){
     log('Lendo 01 - Bipagens (' + state.bipagensFiles.length + ' arquivos)...');
     let bipagensTotalLote = 0;
     const bipagensPorDia = {}; // data 'dd/mm' -> total (só deste lote)
+    // Endereço bipado como "Local Vazio = S" não gera nenhuma linha em Diferença_Por_Local
+    // (não há SKU pra comparar), então sem isso ele nunca sai de "pendente" mesmo já tendo
+    // sido fisicamente conferido — é só daqui, do arquivo de Bipagens, que dá pra saber que
+    // esse endereço foi visitado.
+    const locaisBipadosVazios = new Set(); // só deste lote
     for(const file of state.bipagensFiles){
       const data = dataContagemFromFileName(file.name);
       const text = await readFileAsText(file);
@@ -2863,14 +2868,24 @@ async function processar(){
         const idx = colIndex(header, i + 'ª Contagem');
         if(idx >= 0) countIdxs.push(idx);
       }
+      const idxLocal = colIndex(header, 'Local');
+      const idxLocalVazio = colIndex(header, 'Local Vazio');
       let totalArquivo = 0;
       for(const row of rows){
         for(const idx of countIdxs){
           totalArquivo += toNumber(row[idx]);
         }
+        if(idxLocal >= 0 && idxLocalVazio >= 0){
+          const local = row[idxLocal];
+          const vazio = String(row[idxLocalVazio] || '').trim().toUpperCase();
+          if(local && vazio === 'S') locaisBipadosVazios.add(local);
+        }
       }
       bipagensTotalLote += totalArquivo;
       bipagensPorDia[data] = (bipagensPorDia[data] || 0) + totalArquivo;
+    }
+    if(locaisBipadosVazios.size){
+      log(locaisBipadosVazios.size.toLocaleString('pt-BR') + ' endereço(s) bipado(s) como "Local Vazio" neste lote — contam como visitados (0 itens).', 'ok');
     }
     log('Bipagens deste lote: ' + bipagensTotalLote.toLocaleString('pt-BR'), 'ok');
 
@@ -2938,6 +2953,22 @@ async function processar(){
       }
       itensContadosPorDia[data] = (itensContadosPorDia[data] || 0) + contadosArquivo;
     }
+    // Endereço bipado como vazio entra na contagem do lote com 0 itens — só quando ele NÃO
+    // tiver aparecido em Diferença_Por_Local (se apareceu, já tem a contagem real de itens
+    // e usar essa é o que vale; o vazio aqui é só pra não deixar de fora quem realmente não
+    // tinha nada pra comparar).
+    let locaisVaziosNovos = 0;
+    for(const local of locaisBipadosVazios){
+      if(!somaPorLocal[local]){
+        somaPorLocal[local] = { estoque:0, inventario:0 };
+        locaisVaziosNovos++;
+      }
+      locaisContados.add(local);
+    }
+    if(locaisVaziosNovos){
+      log(locaisVaziosNovos.toLocaleString('pt-BR') + ' endereço(s) vazio(s) do arquivo de Bipagens não apareciam em Diferença_Por_Local — somados aos endereços contados deste lote.', 'ok');
+    }
+
     const acuracidadeBatch = acuraciaRatios.length
       ? acuraciaRatios.reduce((a,b)=>a+b,0) / acuraciaRatios.length : 0;
     log('Itens Contados neste lote: ' + itensContadosTotalLote.toLocaleString('pt-BR'), 'ok');
