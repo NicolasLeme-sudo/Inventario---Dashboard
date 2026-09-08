@@ -766,6 +766,13 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
       </div>
       <div id="statusBases" class="hint" style="margin-top:12px; line-height:1.9;"></div>
       <div class="hint" style="margin-top:10px;"><b style="color:var(--accent-gold);">*</b> Só Bipagens e Diferença_Por_Local são obrigatórios em todo ciclo. As quatro bases ficam guardadas neste navegador depois do primeiro envio — só reenvie quando elas mudarem.</div>
+      <div class="actions" style="margin-top:10px;">
+        <button class="btn secondary" id="btnExportarBaseEnderecos" onclick="exportarBaseEnderecosAtual()">⬇ Baixar base de endereços ativa (.xlsx)</button>
+      </div>
+      <div class="hint" style="margin-top:6px;">
+        Baixa a Base_Estoque de endereços que está publicada agora no Supabase (não fica só guardada no navegador de quem enviou por último) —
+        edite e suba de novo em "Base_Estoque.xlsx (endereços)" acima para atualizar a base ativa.
+      </div>
       <div class="hint" style="margin-top:10px;">A "Base_Custo" substitui o "Valor Unitario" que vem no arquivo de Diferença_Por_Local (não confiável) — o valor de ganhos/perdas em R$ passa a ser calculado por SKU a partir dessa base (usa a coluna "Custo"; se vier 0/vazio, usa o "Préço médio" como reserva).</div>
       <div id="avisoDuplicados" style="display:none; margin-top:12px; padding:12px; border-radius:8px; border:1px solid var(--negative); background:rgba(220,53,69,0.08);">
         <div style="font-weight:600; color:var(--negative); margin-bottom:6px;">⚠ Arquivo(s) já processado(s) neste ciclo</div>
@@ -2407,6 +2414,29 @@ async function readXLSX(file){
   const wb = XLSX.read(buf, { type:'array' });
   const sheet = wb.Sheets[wb.SheetNames[0]];
   return XLSX.utils.sheet_to_json(sheet, { defval: null });
+}
+
+// Baixa a base de endereços que está publicada AGORA no Supabase (base_enderecos) — não a
+// que está só em cache no navegador de quem processou por último. É o jeito de "pegar a
+// última pasta abastecida" para editar e reenviar em Base_Estoque.xlsx (endereços).
+async function exportarBaseEnderecosAtual(){
+  const btn = document.getElementById('btnExportarBaseEnderecos');
+  const original = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Baixando...';
+  try{
+    const linhas = await sbAll('base_enderecos?select=local,bloco,setor,regiao&order=local.asc');
+    if(!linhas.length){ alert('Nenhuma base de endereços publicada ainda — processe e envie um ciclo primeiro.'); return; }
+    // Mesmos nomes de coluna que parseBaseEnderecos espera de volta (Local, Bloco, Setor, Região).
+    const dados = linhas.map(l => ({ Local: l.local, Bloco: l.bloco, Setor: l.setor, 'Região': l.regiao }));
+    const ws = XLSX.utils.json_to_sheet(dados);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Base_Estoque');
+    XLSX.writeFile(wb, 'Base_Estoque_enderecos_ativa.xlsx');
+  }catch(e){
+    alert('Não foi possível baixar a base de endereços: ' + e.message);
+  }finally{
+    btn.disabled = false; btn.textContent = original;
+  }
 }
 
 /* ================= CACHE DAS BASES DE APOIO =================
