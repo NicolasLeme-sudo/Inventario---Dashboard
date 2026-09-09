@@ -2109,7 +2109,8 @@ async function atualizarEnderecosPendentesGeral(){
     }
     filtrarRegiao(); // reavalia os status agora que sabemos o que falta por bloco
     renderPrazo();   // o pendente da projeção depende dos endereços que faltam
-    if(!base.length){
+    // Sem base ainda, ou sem nenhum endereço pendente (ciclo 100% contado): nada pra exportar.
+    if(!base.length || !enderecosPendentesGeral.length){
       btn.style.display = 'none';
       return;
     }
@@ -2808,11 +2809,22 @@ async function processar(){
   document.getElementById('btnEnviar').disabled = true;
   document.getElementById('cardResumo').style.display = 'none';
 
-  if(!state.bipagensFiles.length || !state.diferencaFiles.length){
-    log('⚠ Selecione ao menos os arquivos de Bipagens e de Diferença_Por_Local.', 'err');
+  // Bipagens e Diferença só são obrigatórios juntos (um sem o outro deixaria bipagem e itens
+  // contados descasados). Nenhum dos dois selecionado é permitido: processa só pra atualizar
+  // as bases (Foto, Embalagem, Endereços, Custo) e republicar o resumo — sem novo item contado.
+  const atualizandoSoBases = !state.bipagensFiles.length && !state.diferencaFiles.length;
+  if(!atualizandoSoBases && (!state.bipagensFiles.length || !state.diferencaFiles.length)){
+    log('⚠ Selecione Bipagens e Diferença_Por_Local juntos — ou nenhum dos dois, se for só atualizar as bases.', 'err');
     return;
   }
+  if(atualizandoSoBases){
+    log('ℹ Sem Bipagens/Diferença selecionados — processando só para atualizar as bases e republicar o resumo do ciclo (nenhum item novo será contado).', 'warn');
+  }
   const modoReconciliacao = document.getElementById('chkModoReconciliacao').checked;
+  if(modoReconciliacao && atualizandoSoBases){
+    log('⚠ Modo Reconciliação precisa de TODOS os arquivos de Bipagens e Diferença do ciclo selecionados — sem eles, ele zeraria o resumo publicado. Desmarque o Modo Reconciliação se for só atualizar bases.', 'err');
+    return;
+  }
   if(!modoReconciliacao && state.arquivosDuplicados && state.arquivosDuplicados.length && !document.getElementById('chkConfirmarReenvio').checked){
     log('⚠ Arquivo(s) já processado(s) neste ciclo — marque a confirmação acima para reprocessar mesmo assim, ou remova o(s) arquivo(s) repetido(s) da seleção.', 'err');
     return;
@@ -3482,12 +3494,15 @@ async function enviarSupabase(){
     log('✔ ganhos_perdas_detalhe OK (' + state.resultado.ganhosPerdas.length + ' linhas)', 'ok');
 
     // arquivos_processados: trava contra reenvio acidental do mesmo arquivo no próximo ciclo.
-    log('Registrando arquivos processados neste ciclo...');
-    const quemArquivos = document.getElementById('cfgSeuNome').value.trim() || null;
-    await supabaseRequest('arquivos_processados?on_conflict=ciclo_id,tipo,nome_arquivo', 'POST',
-      state.resultado.arquivosProcessadosAgora.map(a => ({ ...a, enviado_por: quemArquivos })),
-      { 'Prefer':'resolution=merge-duplicates' });
-    log('✔ arquivos_processados OK', 'ok');
+    // Vazio quando o lote foi só de atualização de bases (sem Bipagens/Diferença) — nada a travar.
+    if(state.resultado.arquivosProcessadosAgora.length){
+      log('Registrando arquivos processados neste ciclo...');
+      const quemArquivos = document.getElementById('cfgSeuNome').value.trim() || null;
+      await supabaseRequest('arquivos_processados?on_conflict=ciclo_id,tipo,nome_arquivo', 'POST',
+        state.resultado.arquivosProcessadosAgora.map(a => ({ ...a, enviado_por: quemArquivos })),
+        { 'Prefer':'resolution=merge-duplicates' });
+      log('✔ arquivos_processados OK', 'ok');
+    }
     state.arquivosDuplicados = [];
     document.getElementById('avisoDuplicados').style.display = 'none';
 
