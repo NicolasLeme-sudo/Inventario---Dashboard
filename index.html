@@ -3446,9 +3446,19 @@ async function enviarSupabase(){
       log('✔ enderecos_contados_ciclo OK', 'ok');
     }
 
-    // base_enderecos: publica a base inteira (upsert por local) para a Visão Geral
-    // conseguir mostrar/exportar os endereços pendentes sem depender do navegador local.
+    // base_enderecos representa a base ATIVA (uma só, não por ciclo) — precisa ficar
+    // IDÊNTICA ao arquivo mais recente, não só receber upsert. Endereço removido/corrigido
+    // na planilha (ex.: duplicata eliminada) nunca saía da tabela antes disso, ficando órfão
+    // pra sempre e aparecendo como "pendente" mesmo com o ciclo 100% contado (foram 129
+    // endereços fantasmas travados assim). Por isso sincroniza (apaga o que não está mais
+    // no arquivo) antes do upsert.
     if(state.resultado.baseEnderecos.length){
+      log('Sincronizando base_enderecos (removendo endereços que saíram do arquivo)...');
+      const locaisAtuais = state.resultado.baseEnderecos.map(e => e.local);
+      const res = await supabaseRequest('rpc/sincronizar_base_enderecos', 'POST', { p_locais: locaisAtuais });
+      const removidos = Number(await res.json()) || 0;
+      if(removidos) log('✔ ' + removidos.toLocaleString('pt-BR') + ' endereço(s) órfão(s) removido(s)', 'ok');
+
       log('Enviando base_enderecos (' + state.resultado.baseEnderecos.length.toLocaleString('pt-BR') + ' endereços)...');
       for(let i=0;i<state.resultado.baseEnderecos.length;i+=500){
         await supabaseRequest('base_enderecos?on_conflict=local', 'POST',
