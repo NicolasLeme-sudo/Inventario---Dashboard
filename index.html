@@ -381,8 +381,8 @@ footer{margin-top:40px; font-size:12px; color:var(--text-secondary); text-align:
     <h2>Inventário E-commerce</h2>
     <div class="auth-sub">Acesso restrito — entre para visualizar o painel.</div>
     <form id="authForm" autocomplete="on">
-      <label for="authEmail">E-mail</label>
-      <input type="email" id="authEmail" autocomplete="username" required>
+      <label for="authEmail">Usuário</label>
+      <input type="text" id="authEmail" placeholder="admin" autocomplete="username" required>
       <label for="authSenha">Senha</label>
       <input type="password" id="authSenha" autocomplete="current-password" required>
       <button type="submit" id="authBtn">Entrar</button>
@@ -3559,13 +3559,18 @@ function sair(){
   exigirLogin('Sessão encerrada.');
   document.getElementById('authMsg').style.color = 'var(--text-secondary)';
 }
+// O Supabase Auth exige um "e-mail" como identificador internamente, mas quem usa
+// o sistema só digita um usuário (ex: "admin") — completamos o domínio fixo aqui,
+// sem a pessoa nunca precisar saber que por trás disso existe um e-mail.
+const DOMINIO_LOGIN = '@vulcabras.com';
 async function entrar(evt){
   if(evt) evt.preventDefault();
-  const email = document.getElementById('authEmail').value.trim();
+  const usuario = document.getElementById('authEmail').value.trim().toLowerCase();
   const senha = document.getElementById('authSenha').value;
   const btn = document.getElementById('authBtn');
   const msg = document.getElementById('authMsg');
-  if(!email || !senha){ msg.textContent = 'Preencha e-mail e senha.'; msg.style.color = 'var(--negative)'; return; }
+  if(!usuario || !senha){ msg.textContent = 'Preencha usuário e senha.'; msg.style.color = 'var(--negative)'; return; }
+  const email = usuario.includes('@') ? usuario : usuario + DOMINIO_LOGIN;
   btn.disabled = true; btn.textContent = 'Entrando...';
   msg.style.color = 'var(--text-secondary)'; msg.textContent = 'Verificando...';
   try{
@@ -3575,7 +3580,7 @@ async function entrar(evt){
       body: JSON.stringify({ email, password: senha })
     });
     const dados = await res.json();
-    if(!res.ok) throw new Error(dados.error_description || dados.msg || 'E-mail ou senha inválidos.');
+    if(!res.ok) throw new Error(dados.error_description || dados.msg || 'Usuário ou senha inválidos.');
     salvarSessao(dados);
     document.getElementById('authSenha').value = '';
     msg.textContent = '';
