@@ -3599,7 +3599,10 @@ document.getElementById('authForm').addEventListener('submit', entrar);
 /* ================= INIT ================= */
 applyLogo();
 document.getElementById('authLogo').src = LOGO_DATA.mark;
-document.getElementById('faviconLink').href = LOGO_DATA.mark;
+// Ícone da aba do navegador: usa LOGO_DATA.favicon (fundo azul-marinho, o mesmo .png padrão
+// usado em todos os relatórios), não LOGO_DATA.mark (fundo transparente, certo pro cabeçalho
+// escuro mas quase invisível numa aba de navegador com fundo claro).
+document.getElementById('faviconLink').href = LOGO_DATA.favicon;
 // Preferências locais não dependem de login nem do Supabase — aplicam já na abertura.
 aplicarSetorPreferido(null);
 document.getElementById('prazoModo').value = lerModoJanela();
