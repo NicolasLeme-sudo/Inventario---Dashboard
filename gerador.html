@@ -1,71 +1,167 @@
 <!DOCTYPE html>
-<html lang="pt-BR" data-theme="dark">
+<html lang="pt-BR" data-tema="escuro">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Gerador — Inventário E-commerce</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<link rel="icon" href="img/favicon.png" type="image/png">
+<link rel="apple-touch-icon" href="img/favicon.png">
+<script>
+// Mesma preferência de tema do dashboard (salva neste navegador); aplica antes de desenhar.
+try{ var t = localStorage.getItem("inventario_tema"); if(t === "claro" || t === "escuro") document.documentElement.setAttribute("data-tema", t); }catch(e){}
+</script>
 <style>
+/* ===== Padrão visual Vulcabras (docs/padrao-vulcabras/README.md do Produtividade) =====
+   Tema escuro é o padrão; o claro é alternativo. Toda cor sai de uma variável. */
+:root[data-tema="escuro"]{
+  --bg:#0F1623; --bg-card:#192032; --bg-sidebar:#111827; --bg-input:#1E2A3D;
+  --border:#253048; --text:#E8EBF2; --text-muted:#7C8BA8; --text-label:#9BAAC4;
+  --accent:#297ADF; --accent-soft:#16283F; --accent-light:#7FB2EC;
+  --olive:#45C645; --olive-soft:#1B3320; --amber:#F6BD00; --amber-soft:#332B10;
+  --red:#C8102E; --red-soft:#331015; --gelo:#93A5B8; --laranja:#E8830D;
+  --shadow:0 2px 12px rgba(0,0,0,.4);
+}
+:root[data-tema="claro"]{
+  --bg:#F3F4F7; --bg-card:#FFFFFF; --bg-sidebar:#132043; --bg-input:#F8F9FB;
+  --border:#E1E4EA; --text:#1C2333; --text-muted:#6B7280; --text-label:#4B5563;
+  --accent:#1A6FC4; --accent-soft:#EFF6FF; --accent-light:#5B9BD5;
+  --olive:#2E9E2E; --olive-soft:#E4F3E4; --amber:#C9960A; --amber-soft:#FBF0D9;
+  --red:#C0392B; --red-soft:#FBE4E1; --gelo:#8FA3B8; --laranja:#C26A00;
+  --shadow:0 2px 8px rgba(0,0,0,.08);
+}
+/* Cores do gráfico Realizado x Meta x Curva, montadas só com os tokens acima.
+   Itens Contados fica no dourado (--amber), a cor do inventário, por decisão de 20/11. */
 :root{
-  --bg:#142032; --bg-deep:#031F44; --card-bg:#2C3E52; --card-border:#44576C;
-  --text-primary:#FFFFFF; --text-secondary:#93A5B8;
-  --accent-gold:#F6BD00; --positive:#45C645; --negative:#C8102E;
+  --meta-bar:var(--gelo);
+  --meta-label-bg:var(--bg-input); --meta-label-text:var(--text-label);
+  --real-label-bg:var(--amber-soft); --real-label-text:var(--amber);
+  --curva-line:var(--olive); --curva-label-bg:var(--olive-soft); --curva-label-text:var(--olive);
 }
-*{box-sizing:border-box; margin:0; padding:0;}
+*,*::before,*::after{box-sizing:border-box; margin:0; padding:0;}
 body{
-  font-family:"Segoe UI","Segoe UI Semibold",Roboto,"Helvetica Neue",Arial,sans-serif;
-  background:var(--bg); color:var(--text-primary); padding:32px 40px 80px; min-height:100vh;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  font-variant-numeric:tabular-nums;
+  background:var(--bg); color:var(--text);
+  transition:background .2s ease, color .2s ease;
+  min-height:100vh;
 }
-h1{font-size:20px; font-weight:800; margin-bottom:4px;}
-.subtitle{font-size:13px; color:var(--text-secondary); margin-bottom:28px;}
-.card{background:var(--card-bg); border:1px solid var(--card-border); border-radius:10px; padding:20px 24px; margin-bottom:20px;}
-.card h2{font-size:13px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:var(--accent-gold); margin-bottom:16px;}
-.grid{display:grid; grid-template-columns:repeat(auto-fit, minmax(220px,1fr)); gap:16px;}
+a{color:inherit;text-decoration:none;}
+button{font-family:inherit;}
+.so-claro{display:none;}
+:root[data-tema="claro"] .so-escuro{display:none;}
+:root[data-tema="claro"] .so-claro{display:inline-block;}
+
+/* ---------- TOPBAR (padrão dos reports; as abas das telas ficam aqui em cima) ---------- */
+.topbar{
+  background:var(--bg-card); border-bottom:1px solid var(--border); box-shadow:var(--shadow);
+  padding:0 24px; position:sticky; top:0; z-index:50;
+}
+.topbar-row{
+  display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;
+  min-height:60px; padding:8px 0;
+}
+.header-left{display:flex; align-items:center; gap:12px;}
+.header-left img{height:36px; width:auto; object-fit:contain;}
+.header-titles h2{font-size:16px; font-weight:700; line-height:1.25;}
+.header-titles .meta{font-size:11.5px; color:var(--text-muted); margin-top:2px;}
+
+.tabs{display:flex; gap:28px; overflow-x:auto; scrollbar-width:none;}
+.tabs::-webkit-scrollbar{display:none;}
+.tab{
+  font-size:13px; font-weight:500; color:var(--text-label);
+  padding:10px 2px 12px 2px; cursor:pointer; border-bottom:2px solid transparent;
+  white-space:nowrap; transition:color .15s;
+}
+.tab:hover{color:var(--text);}
+.tab.active{color:var(--text); font-weight:600; border-bottom-color:var(--accent);}
+.tab .tag-avancado{
+  font-size:9.5px; font-weight:700; color:var(--text-muted); border:1px solid var(--border);
+  border-radius:4px; padding:1px 5px; margin-left:6px; letter-spacing:.8px; vertical-align:middle;
+}
+
+/* ---------- Barra de ações do topo (perfil · tela cheia · tema · sair) ---------- */
+.vb-acoes{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.vb-perfil{font-size:12px;font-weight:600;color:inherit;opacity:.75;white-space:nowrap;margin-right:4px}
+.vb-btn{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:20px;cursor:pointer;background:rgba(127,140,170,.14);border:1px solid rgba(127,140,170,.35);color:inherit;font-family:inherit;font-size:12px;font-weight:600;line-height:1.2;white-space:nowrap}
+.vb-btn:hover{background:rgba(127,140,170,.26)}
+.vb-btn:focus-visible{outline:2px solid #297ADF;outline-offset:2px}
+.vb-btn[hidden]{display:none}
+
+/* ---------- Conteúdo do Gerador (mesmos componentes da aba Atualizar Inventário) ---------- */
+main{padding:22px;}
+.subtitle{font-size:.78rem; color:var(--text-muted); margin-bottom:22px; line-height:1.5;}
+.hint{font-size:.72rem; color:var(--text-muted); line-height:1.6;}
+.card{background:var(--bg-card); border:1px solid var(--border); border-radius:8px; padding:16px 18px; margin-bottom:14px;}
+.card h2{font-size:.88rem; font-weight:700; color:var(--text); margin-bottom:14px;}
+.grid{display:grid; grid-template-columns:repeat(auto-fit, minmax(220px,1fr)); gap:14px;}
 .field{display:flex; flex-direction:column; gap:6px;}
-.field label{font-size:12px; color:var(--text-secondary);}
+.field label{font-size:.64rem; text-transform:uppercase; letter-spacing:.07em; font-weight:600; color:var(--text-muted);}
 .field input, .field select{
-  background:var(--bg-deep); border:1px solid var(--card-border); color:var(--text-primary);
-  border-radius:6px; padding:9px 10px; font-size:13px; font-family:inherit;
+  background:var(--bg-input); border:1px solid var(--border); color:var(--text);
+  border-radius:8px; padding:8px 10px; font-size:.8rem; font-family:inherit;
 }
-.field .hint{font-size:11px; color:var(--text-secondary);}
 .filepick{
-  border:1.5px dashed var(--card-border); border-radius:8px; padding:16px; text-align:center;
-  cursor:pointer; font-size:13px; color:var(--text-secondary); transition:border-color .15s;
+  border:1.5px dashed var(--border); border-radius:8px; padding:16px; text-align:center;
+  cursor:pointer; font-size:.8rem; color:var(--text-muted); transition:border-color .15s;
 }
-.filepick:hover{border-color:var(--accent-gold);}
-.filepick.ok{border-color:var(--positive); color:var(--positive);}
+.filepick:hover{border-color:var(--accent);}
+.filepick.ok{border-color:var(--olive); color:var(--olive);}
 .filepick input{display:none;}
 .btn{
-  background:var(--accent-gold); color:#1A1500; border:none; border-radius:8px;
-  padding:12px 22px; font-size:14px; font-weight:700; cursor:pointer; font-family:inherit;
+  background:var(--accent); color:#fff; border:none; border-radius:7px;
+  padding:8px 14px; font-size:.8rem; font-weight:600; cursor:pointer; font-family:inherit;
 }
-.btn:hover{opacity:.9;}
+.btn:hover{filter:brightness(1.1);}
 .btn:disabled{opacity:.4; cursor:not-allowed;}
-.btn.secondary{background:var(--card-border); color:var(--text-primary);}
+.btn.secondary{background:var(--bg-input); color:var(--text); border:1px solid var(--border);}
 .actions{display:flex; gap:12px; align-items:center; margin:20px 0;}
 .log{
-  background:var(--bg-deep); border:1px solid var(--card-border); border-radius:8px;
+  background:var(--bg-input); border:1px solid var(--border); border-radius:8px;
   padding:14px 16px; font-size:12px; font-family:"Cascadia Code",Consolas,monospace;
-  color:var(--text-secondary); max-height:280px; overflow-y:auto; white-space:pre-wrap; line-height:1.6;
+  color:var(--text-muted); max-height:280px; overflow-y:auto; white-space:pre-wrap; line-height:1.6;
 }
-.log .ok{color:var(--positive);}
-.log .err{color:var(--negative);}
-.log .warn{color:var(--accent-gold);}
-table{width:100%; border-collapse:collapse; font-size:13px; margin-top:8px;}
-th{text-align:left; font-size:11px; text-transform:uppercase; color:var(--text-secondary); padding:8px; border-bottom:1px solid var(--card-border);}
-td{padding:8px; border-bottom:1px solid var(--card-border);}
-.status{font-size:12px; padding:2px 8px; border-radius:999px; font-weight:700;}
-.status.pending{background:rgba(147,165,184,.2); color:var(--text-secondary);}
-.status.done{background:rgba(69,198,69,.15); color:var(--positive);}
+.log .ok{color:var(--olive);}
+.log .err{color:var(--red);}
+.log .warn{color:var(--amber);}
+table{width:100%; border-collapse:collapse; font-size:.78rem; margin-top:8px; font-variant-numeric:tabular-nums;}
+th{text-align:left; font-size:.65rem; font-weight:600; text-transform:uppercase; letter-spacing:.04em; color:var(--text-label); padding:7px 10px; border-bottom:1px solid var(--border);}
+td{padding:8px 10px; border-bottom:1px solid var(--border);}
+.status{font-size:.68rem; padding:2px 8px; border-radius:999px; font-weight:700;}
+.status.pending{background:var(--bg-input); color:var(--gelo);}
+.status.done{background:var(--olive-soft); color:var(--olive);}
 .warn-box{
-  background:rgba(246,189,0,.08); border:1px solid var(--accent-gold); border-radius:8px;
-  padding:12px 16px; font-size:12px; color:var(--text-secondary); margin-bottom:16px; line-height:1.6;
+  background:var(--amber-soft); border:1px solid var(--amber); border-radius:8px;
+  padding:12px 16px; font-size:.72rem; color:var(--text-muted); margin-bottom:14px; line-height:1.6;
 }
+@media (max-width: 700px){
+  .topbar{padding:0 16px;}
+  main{padding:16px;}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important; animation:none!important;}}
 </style>
 </head>
 <body>
 
-<h1>Gerador — Inventário E-commerce</h1>
+<header class="topbar">
+  <div class="topbar-row">
+    <div class="header-left">
+      <img class="so-escuro" src="img/logo-mark.png" alt="Vulcabras"><img class="so-claro" src="img/logo-mark-azul.png" alt="Vulcabras">
+      <div class="header-titles">
+        <h2>Gerador — Inventário E-commerce</h2>
+        <div class="meta">Abastecimento do ciclo · envia para o Supabase</div>
+      </div>
+    </div>
+    <div class="header-right vb-acoes">
+      <span class="vb-perfil" id="topbarPerfil"></span>
+      <button class="vb-btn" id="btnTelaCheia" onclick="vbTelaCheia()" title="Tela cheia (Esc para sair)">⛶ Tela cheia</button>
+      <button class="vb-btn" id="btnTema" onclick="alternarTema()">🌙 Tema Escuro</button>
+    </div>
+  </div>
+</header>
+
+<main>
+
 <div class="subtitle">Ferramenta local: lê as pastas do ciclo, recalcula todas as medidas e envia para o Supabase. Faça login (seção 0) antes de enviar — a escrita é liberada só para usuário autenticado.</div>
 
 <div class="warn-box">
@@ -110,7 +206,7 @@ td{padding:8px; border-bottom:1px solid var(--card-border);}
 </div>
 
 <div class="card">
-  <h2>2. Constantes do Meta Dia — <span style="text-transform:none; color:var(--text-secondary); font-weight:400;">Meta Dia = ((A × B) / C) × D</span></h2>
+  <h2>2. Constantes do Meta Dia — <span style="text-transform:none; color:var(--text-muted); font-weight:400;">Meta Dia = ((A × B) / C) × D</span></h2>
   <div class="grid">
     <div class="field"><label>A — Qtde. Endereços</label><input type="number" id="cfgMetaA" value="1600"></div>
     <div class="field"><label>B — Média Peças/Endereço</label><input type="number" step="0.01" id="cfgMetaB" value="7.38"></div>
@@ -174,6 +270,8 @@ td{padding:8px; border-bottom:1px solid var(--card-border);}
   <h2>5. Resumo calculado — confira antes de enviar</h2>
   <table id="tblResumo"><tbody></tbody></table>
 </div>
+
+</main>
 
 <script>
 /* ================= CONFIG SUPABASE ================= */
@@ -594,11 +692,12 @@ async function fazerLogin(){
     if(!res.ok){ throw new Error(data.error_description || data.msg || 'Falha no login'); }
     sessionAccessToken = data.access_token;
     statusEl.textContent = '✔ Conectado como ' + email;
-    statusEl.style.color = 'var(--positive)';
+    const pf = document.getElementById('topbarPerfil'); if(pf) pf.textContent = email;
+    statusEl.style.color = 'var(--olive)';
     document.getElementById('cardLogin').style.opacity = '.6';
   }catch(err){
     statusEl.textContent = '✖ ' + err.message;
-    statusEl.style.color = 'var(--negative)';
+    statusEl.style.color = 'var(--red)';
   }
 }
 
@@ -682,6 +781,36 @@ async function enviarSupabase(){
     document.getElementById('btnEnviar').disabled = false;
   }
 }
+</script>
+<script>
+/* ---------- Barra de ações do topo: tema e tela cheia (padrão dos reports) ---------- */
+function aplicarTema(t){
+  document.documentElement.setAttribute('data-tema', t);
+  document.getElementById('btnTema').textContent = t === 'claro' ? '☀️ Tema Claro' : '🌙 Tema Escuro';
+}
+function alternarTema(){
+  var novo = document.documentElement.getAttribute('data-tema') === 'claro' ? 'escuro' : 'claro';
+  aplicarTema(novo);
+  try{ localStorage.setItem('inventario_tema', novo); }catch(e){}
+}
+aplicarTema(document.documentElement.getAttribute('data-tema') === 'claro' ? 'claro' : 'escuro');
+function vbTelaCheia(){
+  var d=document, el=d.documentElement;
+  if(!(d.fullscreenElement||d.webkitFullscreenElement)){
+    var f=el.requestFullscreen||el.webkitRequestFullscreen;
+    if(f){ var p=f.call(el); if(p&&p.catch) p.catch(function(){}); }
+  } else {
+    var x=d.exitFullscreen||d.webkitExitFullscreen; if(x) x.call(d);
+  }
+}
+function vbAtualizaTelaCheia(){
+  var b=document.getElementById('btnTelaCheia'), d=document; if(!b) return;
+  if(!(d.fullscreenEnabled||d.webkitFullscreenEnabled)){ b.hidden=true; return; }
+  b.textContent=(d.fullscreenElement||d.webkitFullscreenElement)?'⛶ Sair da tela cheia':'⛶ Tela cheia';
+}
+document.addEventListener('fullscreenchange',vbAtualizaTelaCheia);
+document.addEventListener('webkitfullscreenchange',vbAtualizaTelaCheia);
+vbAtualizaTelaCheia();
 </script>
 </body>
 </html>
